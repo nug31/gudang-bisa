@@ -1,0 +1,11 @@
+{
+  "name": "gudang-mitra-netlify-functions",
+  "version": "1.0.0",
+  "description": "Serverless functions for Gudang Mitra",
+  "main": "index.js",
+  "dependencies": {
+    "@supabase/supabase-js": "^2.39.7",
+    "bcryptjs": "^2.4.3",
+    "uuid": "^9.0.1"
+  }
+}

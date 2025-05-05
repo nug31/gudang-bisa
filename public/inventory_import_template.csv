@@ -1,0 +1,6 @@
+name,description,categoryId,sku,quantityAvailable,quantityReserved,location,imageUrl
+"Adobe Creative Cloud","Annual subscription for Adobe Creative Cloud including Photoshop, Illustrator, and more","58043a89-b0f8-4235-93af-3cc1b83fb4f9","ADOBE-CC-001",25,0,"Digital Inventory","https://example.com/images/adobe-cc.jpg"
+"Dell XPS 15 Laptop","High-performance laptop with 16GB RAM, 512GB SSD, and Intel Core i7","1f34fae5-830b-4c6c-9092-7ea7c1f11433","DELL-XPS15-001",10,0,"IT Storage Room","https://example.com/images/dell-xps15.jpg"
+"HP LaserJet Pro Printer","Color laser printer with wireless connectivity and duplex printing","1f34fae5-830b-4c6c-9092-7ea7c1f11433","HP-LJ-001",5,0,"IT Storage Room","https://example.com/images/hp-printer.jpg"
+"Office Chair","Ergonomic office chair with adjustable height and lumbar support","4","CHAIR-001",15,0,"Warehouse B","https://example.com/images/office-chair.jpg"
+"Whiteboard Markers","Pack of 12 assorted color whiteboard markers","3","MARKER-001",50,0,"Supply Closet","https://example.com/images/markers.jpg"

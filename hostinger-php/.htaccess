@@ -1,0 +1,20 @@
+# Enable rewrite engine
+RewriteEngine On
+
+# Handle API requests
+RewriteRule ^api/login$ api/login.php [L]
+RewriteRule ^api/register$ api/register.php [L]
+RewriteRule ^api/test-connection$ api/test-connection.php [L]
+
+# Handle database requests
+RewriteRule ^db/requests$ db/requests.php [L]
+RewriteRule ^db/users$ db/users.php [L]
+RewriteRule ^db/categories$ db/categories.php [L]
+
+# Serve static files from the public directory
+RewriteCond %{REQUEST_FILENAME} !-f
+RewriteCond %{REQUEST_FILENAME} !-d
+RewriteRule ^(.*)$ index.html [L]
+
+# Set default document
+DirectoryIndex index.html

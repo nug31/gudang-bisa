@@ -1,0 +1,269 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>API Test</title>
+    <style>
+      body {
+        font-family: Arial, sans-serif;
+        max-width: 800px;
+        margin: 0 auto;
+        padding: 20px;
+      }
+      h1 {
+        color: #333;
+      }
+      .form-group {
+        margin-bottom: 15px;
+      }
+      label {
+        display: block;
+        margin-bottom: 5px;
+        font-weight: bold;
+      }
+      input,
+      select,
+      textarea {
+        width: 100%;
+        padding: 8px;
+        border: 1px solid #ddd;
+        border-radius: 4px;
+      }
+      button {
+        background-color: #4caf50;
+        color: white;
+        padding: 10px 15px;
+        border: none;
+        border-radius: 4px;
+        cursor: pointer;
+      }
+      button:hover {
+        background-color: #45a049;
+      }
+      pre {
+        background-color: #f5f5f5;
+        padding: 15px;
+        border-radius: 4px;
+        overflow-x: auto;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>API Test</h1>
+
+    <h2>Create New Request</h2>
+    <form id="createRequestForm">
+      <div class="form-group">
+        <label for="title">Title</label>
+        <input type="text" id="title" name="title" required />
+      </div>
+
+      <div class="form-group">
+        <label for="description">Description</label>
+        <textarea
+          id="description"
+          name="description"
+          rows="4"
+          required
+        ></textarea>
+      </div>
+
+      <div class="form-group">
+        <label for="category">Category</label>
+        <select id="category" name="category" required>
+          <!-- Will be populated dynamically -->
+        </select>
+      </div>
+
+      <div class="form-group">
+        <label for="priority">Priority</label>
+        <select id="priority" name="priority" required>
+          <option value="low">Low</option>
+          <option value="medium">Medium</option>
+          <option value="high">High</option>
+          <option value="critical">Critical</option>
+        </select>
+      </div>
+
+      <div class="form-group">
+        <label for="quantity">Quantity</label>
+        <input
+          type="number"
+          id="quantity"
+          name="quantity"
+          min="1"
+          value="1"
+          required
+        />
+      </div>
+
+      <button type="submit">Submit Request</button>
+    </form>
+
+    <h2>Response</h2>
+    <pre id="response"></pre>
+
+    <h2>All Requests</h2>
+    <button id="getAllRequests">Get All Requests</button>
+    <pre id="allRequests"></pre>
+
+    <script>
+      // Fetch categories when the page loads
+      document.addEventListener("DOMContentLoaded", async () => {
+        try {
+          const response = await fetch("/db/requests", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              action: "getAll",
+            }),
+          });
+
+          if (!response.ok) {
+            throw new Error("Failed to fetch requests");
+          }
+
+          const requests = await response.json();
+          document.getElementById("allRequests").textContent = JSON.stringify(
+            requests,
+            null,
+            2
+          );
+
+          // Extract unique categories
+          const categories = new Set();
+          requests.forEach((request) => {
+            if (request.category) {
+              categories.add(request.category);
+            }
+          });
+
+          // Populate category dropdown
+          const categorySelect = document.getElementById("category");
+          categories.forEach((category) => {
+            const option = document.createElement("option");
+            option.value = category;
+            option.textContent = category;
+            categorySelect.appendChild(option);
+          });
+
+          // If no categories found, add a default one
+          if (categories.size === 0) {
+            const option = document.createElement("option");
+            option.value = "1f34fae5-830b-4c6c-9092-7ea7c1f11433"; // Hardware category ID from database
+            option.textContent = "Hardware";
+            categorySelect.appendChild(option);
+          }
+        } catch (error) {
+          console.error("Error fetching requests:", error);
+          document.getElementById("allRequests").textContent =
+            "Error fetching requests: " + error.message;
+        }
+      });
+
+      // Handle form submission
+      document
+        .getElementById("createRequestForm")
+        .addEventListener("submit", async (e) => {
+          e.preventDefault();
+
+          // Get the category value
+          const categorySelect = document.getElementById("category");
+          const categoryValue =
+            categorySelect.value || "1f34fae5-830b-4c6c-9092-7ea7c1f11433"; // Default to Hardware category
+
+          const formData = {
+            title: document.getElementById("title").value,
+            description: document.getElementById("description").value,
+            category: categoryValue,
+            priority: document.getElementById("priority").value,
+            quantity: parseInt(document.getElementById("quantity").value),
+            status: "pending",
+            userId: "733dce62-3971-4448-8fc7-2d5e77928b00", // Admin User ID from database
+          };
+
+          try {
+            const requestData = {
+              ...formData,
+              id: Date.now().toString(), // Generate a unique ID
+              createdAt: new Date().toISOString(),
+              updatedAt: new Date().toISOString(),
+            };
+
+            console.log("Sending request data:", requestData);
+
+            const response = await fetch("/db/requests", {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+              },
+              body: JSON.stringify({
+                action: "create",
+                request: requestData,
+              }),
+            });
+
+            const responseData = await response.json();
+
+            if (!response.ok) {
+              console.error("Server error:", responseData);
+              throw new Error(
+                responseData.message || "Failed to create request"
+              );
+            }
+
+            document.getElementById("response").textContent = JSON.stringify(
+              responseData,
+              null,
+              2
+            );
+
+            // Clear form
+            document.getElementById("createRequestForm").reset();
+
+            // Refresh all requests
+            document.getElementById("getAllRequests").click();
+          } catch (error) {
+            console.error("Error creating request:", error);
+            document.getElementById("response").textContent =
+              "Error creating request: " + error.message;
+          }
+        });
+
+      // Handle get all requests button
+      document
+        .getElementById("getAllRequests")
+        .addEventListener("click", async () => {
+          try {
+            const response = await fetch("/db/requests", {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+              },
+              body: JSON.stringify({
+                action: "getAll",
+              }),
+            });
+
+            if (!response.ok) {
+              throw new Error("Failed to fetch requests");
+            }
+
+            const requests = await response.json();
+            document.getElementById("allRequests").textContent = JSON.stringify(
+              requests,
+              null,
+              2
+            );
+          } catch (error) {
+            console.error("Error fetching requests:", error);
+            document.getElementById("allRequests").textContent =
+              "Error fetching requests: " + error.message;
+          }
+        });
+    </script>
+  </body>
+</html>

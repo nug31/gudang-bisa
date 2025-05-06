@@ -1,14 +1,15 @@
 // Netlify serverless function for API
-const { Pool } = require('pg');
-const bcrypt = require('bcryptjs');
-const jwt = require('jsonwebtoken');
+const { Pool } = require("pg");
+const bcrypt = require("bcryptjs");
+const jwt = require("jsonwebtoken");
+require("dotenv").config();
 
 // Initialize PostgreSQL connection pool
 const pool = new Pool({
   connectionString: process.env.NEON_CONNECTION_STRING,
   ssl: {
-    rejectUnauthorized: false
-  }
+    rejectUnauthorized: false,
+  },
 });
 
 // Helper function to execute SQL queries
@@ -23,50 +24,49 @@ async function query(text, params) {
 }
 
 // JWT secret for token generation
-const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key';
+const JWT_SECRET = process.env.JWT_SECRET || "your-secret-key";
 
 // Handler for authentication routes
 async function handleAuth(event) {
   const { path, httpMethod, body } = event;
   const data = JSON.parse(body);
-  
+
   // Login route
-  if (path === '/api/auth/login') {
+  if (path === "/api/auth/login") {
     const { email, password } = data;
-    
+
     try {
       // Find user by email
-      const userResult = await query(
-        'SELECT * FROM users WHERE email = $1',
-        [email]
-      );
-      
+      const userResult = await query("SELECT * FROM users WHERE email = $1", [
+        email,
+      ]);
+
       if (userResult.rows.length === 0) {
         return {
           statusCode: 401,
-          body: JSON.stringify({ message: 'Invalid email or password' })
+          body: JSON.stringify({ message: "Invalid email or password" }),
         };
       }
-      
+
       const user = userResult.rows[0];
-      
+
       // Compare passwords
       const isPasswordValid = await bcrypt.compare(password, user.password);
-      
+
       if (!isPasswordValid) {
         return {
           statusCode: 401,
-          body: JSON.stringify({ message: 'Invalid email or password' })
+          body: JSON.stringify({ message: "Invalid email or password" }),
         };
       }
-      
+
       // Generate JWT token
       const token = jwt.sign(
         { id: user.id, email: user.email, role: user.role },
         JWT_SECRET,
-        { expiresIn: '7d' }
+        { expiresIn: "7d" }
       );
-      
+
       // Return user data and token
       return {
         statusCode: 200,
@@ -76,47 +76,46 @@ async function handleAuth(event) {
           email: user.email,
           role: user.role,
           department: user.department,
-          token
-        })
+          token,
+        }),
       };
     } catch (error) {
-      console.error('Login error:', error);
+      console.error("Login error:", error);
       return {
         statusCode: 500,
-        body: JSON.stringify({ message: 'Server error' })
+        body: JSON.stringify({ message: "Server error" }),
       };
     }
   }
-  
+
   // Register route
-  if (path === '/api/auth/register') {
-    const { name, email, password, role = 'user', department } = data;
-    
+  if (path === "/api/auth/register") {
+    const { name, email, password, role = "user", department } = data;
+
     try {
       // Check if user already exists
-      const existingUser = await query(
-        'SELECT * FROM users WHERE email = $1',
-        [email]
-      );
-      
+      const existingUser = await query("SELECT * FROM users WHERE email = $1", [
+        email,
+      ]);
+
       if (existingUser.rows.length > 0) {
         return {
           statusCode: 400,
-          body: JSON.stringify({ message: 'User already exists' })
+          body: JSON.stringify({ message: "User already exists" }),
         };
       }
-      
+
       // Hash password
       const hashedPassword = await bcrypt.hash(password, 10);
-      
+
       // Create new user
       const newUser = await query(
-        'INSERT INTO users (name, email, password, role, department) VALUES ($1, $2, $3, $4, $5) RETURNING id, name, email, role, department',
+        "INSERT INTO users (name, email, password, role, department) VALUES ($1, $2, $3, $4, $5) RETURNING id, name, email, role, department",
         [name, email, hashedPassword, role, department]
       );
-      
+
       const user = newUser.rows[0];
-      
+
       return {
         statusCode: 201,
         body: JSON.stringify({
@@ -124,21 +123,21 @@ async function handleAuth(event) {
           name: user.name,
           email: user.email,
           role: user.role,
-          department: user.department
-        })
+          department: user.department,
+        }),
       };
     } catch (error) {
-      console.error('Registration error:', error);
+      console.error("Registration error:", error);
       return {
         statusCode: 500,
-        body: JSON.stringify({ message: 'Server error' })
+        body: JSON.stringify({ message: "Server error" }),
       };
     }
   }
-  
+
   return {
     statusCode: 404,
-    body: JSON.stringify({ message: 'Not found' })
+    body: JSON.stringify({ message: "Not found" }),
   };
 }
 
@@ -147,106 +146,109 @@ async function handleInventory(event) {
   const { path, httpMethod, body } = event;
   const data = JSON.parse(body);
   const { action } = data;
-  
+
   // Get all inventory items
-  if (action === 'getAll') {
+  if (action === "getAll") {
     try {
-      const result = await query('SELECT * FROM inventory_items ORDER BY name');
+      const result = await query("SELECT * FROM inventory_items ORDER BY name");
       return {
         statusCode: 200,
-        body: JSON.stringify(result.rows)
+        body: JSON.stringify(result.rows),
       };
     } catch (error) {
-      console.error('Error fetching inventory items:', error);
+      console.error("Error fetching inventory items:", error);
       return {
         statusCode: 500,
-        body: JSON.stringify({ message: 'Server error' })
+        body: JSON.stringify({ message: "Server error" }),
       };
     }
   }
-  
+
   // Get inventory item by ID
-  if (action === 'getById') {
+  if (action === "getById") {
     const { id } = data;
     try {
-      const result = await query('SELECT * FROM inventory_items WHERE id = $1', [id]);
-      
+      const result = await query(
+        "SELECT * FROM inventory_items WHERE id = $1",
+        [id]
+      );
+
       if (result.rows.length === 0) {
         return {
           statusCode: 404,
-          body: JSON.stringify({ message: 'Item not found' })
+          body: JSON.stringify({ message: "Item not found" }),
         };
       }
-      
+
       return {
         statusCode: 200,
-        body: JSON.stringify(result.rows[0])
+        body: JSON.stringify(result.rows[0]),
       };
     } catch (error) {
-      console.error('Error fetching inventory item:', error);
+      console.error("Error fetching inventory item:", error);
       return {
         statusCode: 500,
-        body: JSON.stringify({ message: 'Server error' })
+        body: JSON.stringify({ message: "Server error" }),
       };
     }
   }
-  
+
   // Add more inventory handlers as needed
-  
+
   return {
     statusCode: 400,
-    body: JSON.stringify({ message: 'Invalid action' })
+    body: JSON.stringify({ message: "Invalid action" }),
   };
 }
 
 // Main handler function
-exports.handler = async function(event, context) {
+exports.handler = async function (event, context) {
   const { path } = event;
-  
+
   // Set CORS headers
   const headers = {
-    'Access-Control-Allow-Origin': '*',
-    'Access-Control-Allow-Headers': 'Content-Type, Authorization',
-    'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS'
+    "Access-Control-Allow-Origin": "*",
+    "Access-Control-Allow-Headers": "Content-Type, Authorization",
+    "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
   };
-  
+
   // Handle OPTIONS requests (CORS preflight)
-  if (event.httpMethod === 'OPTIONS') {
+  if (event.httpMethod === "OPTIONS") {
     return {
       statusCode: 204,
-      headers
+      headers,
     };
   }
-  
+
   try {
     let response;
-    
+
     // Route to appropriate handler based on path
-    if (path.startsWith('/api/auth')) {
+    if (path.startsWith("/api/auth")) {
       response = await handleAuth(event);
-    } else if (path.startsWith('/api/inventory')) {
+    } else if (path.startsWith("/api/inventory")) {
       response = await handleInventory(event);
     } else {
       response = {
         statusCode: 404,
-        body: JSON.stringify({ message: 'Not found' })
+        body: JSON.stringify({ message: "Not found" }),
       };
     }
-    
+
     // Add CORS headers to response
     return {
       ...response,
       headers: {
         ...headers,
-        'Content-Type': 'application/json'
-      }
+        "Content-Type": "application/json",
+      },
     };
   } catch (error) {
-    console.error('Server error:', error);
+    console.error("Server error:", error);
     return {
       statusCode: 500,
       headers,
-      body: JSON.stringify({ message: 'Server error' })
+      body: JSON.stringify({ message: "Server error" }),
     };
   }
 };

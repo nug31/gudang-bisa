@@ -7,7 +7,7 @@ import { Select } from "../ui/Select";
 import { Button } from "../ui/Button";
 import { useInventory } from "../../context/InventoryContext";
 import { InventoryItem } from "../../types/inventory";
-import { useCategories } from "../../hooks/useCategories";
+import { useCategories } from "../../hooks";
 
 interface InventoryFormProps {
   initialData?: InventoryItem;

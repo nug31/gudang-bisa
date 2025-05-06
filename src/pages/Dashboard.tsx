@@ -12,6 +12,7 @@ import {
 import { Layout } from "../components/layout/Layout";
 import { useRequests } from "../context/RequestContext";
 import { useAuth } from "../context/AuthContext";
+import { useInventory } from "../context/InventoryContext";
 import { ItemRequest } from "../types";
 import { Button } from "../components/ui/Button";
 import { RequestCard } from "../components/requests/RequestCard";
@@ -115,74 +116,8 @@ export const Dashboard: React.FC = () => {
     setFilteredRequests(requestsToFilter);
   }, [requests, userRequests, user?.role]);
 
-  // Mock inventory items for demo
-  const inventoryItems = [
-    {
-      id: "1",
-      name: "Dell XPS 13",
-      description: "13-inch laptop with Intel Core i7",
-      categoryId: "1",
-      categoryName: "IT Equipment",
-      sku: "DELL-XPS-13",
-      quantityAvailable: 2,
-      quantityReserved: 1,
-      unitPrice: 1299.99,
-      location: "Warehouse A",
-      createdAt: new Date().toISOString(),
-    },
-    {
-      id: "2",
-      name: "HP Monitor 27-inch",
-      description: "27-inch 4K monitor",
-      categoryId: "1",
-      categoryName: "IT Equipment",
-      sku: "HP-MON-27",
-      quantityAvailable: 3,
-      quantityReserved: 1,
-      unitPrice: 349.99,
-      location: "Warehouse B",
-      createdAt: new Date().toISOString(),
-    },
-    {
-      id: "3",
-      name: "Logitech MX Master",
-      description: "Wireless mouse",
-      categoryId: "1",
-      categoryName: "IT Equipment",
-      sku: "LOG-MX-MASTER",
-      quantityAvailable: 4,
-      quantityReserved: 0,
-      unitPrice: 99.99,
-      location: "Warehouse A",
-      createdAt: new Date().toISOString(),
-    },
-    {
-      id: "4",
-      name: "Office Paper A4",
-      description: "500 sheets of A4 paper",
-      categoryId: "2",
-      categoryName: "Office Supplies",
-      sku: "PAPER-A4-500",
-      quantityAvailable: 1,
-      quantityReserved: 0,
-      unitPrice: 5.99,
-      location: "Warehouse C",
-      createdAt: new Date().toISOString(),
-    },
-    {
-      id: "5",
-      name: "Whiteboard Markers",
-      description: "Pack of 4 colors",
-      categoryId: "2",
-      categoryName: "Office Supplies",
-      sku: "MARKER-WB-4PK",
-      quantityAvailable: 8,
-      quantityReserved: 0,
-      unitPrice: 7.99,
-      location: "Warehouse C",
-      createdAt: new Date().toISOString(),
-    },
-  ];
+  // Use real inventory data from InventoryContext
+  const { inventoryItems } = useInventory();
 
   // Get recent requests (last 5)
   const recentRequests = [...userRequests]

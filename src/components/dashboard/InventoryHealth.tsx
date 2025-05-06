@@ -24,9 +24,10 @@ export const InventoryHealth: React.FC<InventoryHealthProps> = ({
   const navigate = useNavigate();
   const [showAllItems, setShowAllItems] = useState(false);
 
-  // Get low stock items
+  // Get low stock items with a threshold of 5
+  const lowStockThreshold = 5;
   const lowStockItems = inventoryItems
-    .filter((item) => (item.quantityAvailable || 0) < 5)
+    .filter((item) => (item.quantityAvailable || 0) < lowStockThreshold)
     .slice(0, showAllItems ? undefined : 3);
 
   // Fixed trend data for demo

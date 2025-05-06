@@ -24,9 +24,10 @@ export const Stats: React.FC<StatsProps> = ({
     (req) => req.status === "fulfilled"
   ).length;
 
-  // Calculate low stock items (for demo purposes)
+  // Calculate low stock items with a threshold of 5
+  const lowStockThreshold = 5;
   const lowStockItems = inventoryItems.filter(
-    (item) => (item.quantityAvailable || 0) < 5
+    (item) => (item.quantityAvailable || 0) < lowStockThreshold
   ).length;
 
   const stats = [

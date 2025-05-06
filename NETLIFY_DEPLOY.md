@@ -1,48 +1,44 @@
-# Deploying Gudang Mitra to Netlify with Supabase
+# Deploying Gudang Mitra to Netlify with Neon Database
 
-This guide will walk you through the process of deploying the Gudang Mitra application to Netlify with Supabase as the database backend.
+This guide will walk you through the process of deploying the Gudang Mitra application to Netlify with Neon as the PostgreSQL database backend.
 
 ## Prerequisites
 
 1. A [Netlify](https://netlify.com) account
-2. A [Supabase](https://supabase.com) account
+2. A [Neon](https://neon.tech) account
 3. Git installed on your local machine
 
-## Step 1: Set up Supabase
+## Step 1: Set up Neon Database
 
-1. Create a new Supabase project from the [Supabase dashboard](https://app.supabase.com)
-2. Note your project URL and anon key (you'll need these later)
-3. Run the SQL migration script in the Supabase SQL editor:
+1. Create a new Neon project from the [Neon dashboard](https://console.neon.tech)
+2. Create a new database or use the default `neondb`
+3. Note your connection string (you'll need this later)
+4. Run the SQL migration script in the Neon SQL editor:
 
-   - Navigate to the SQL Editor in your Supabase dashboard
-   - Copy the contents of `supabase/migrations/20250501074543_vercel_deployment.sql`
-   - Paste it into the SQL editor and run it
-
-   Alternatively, you can use the provided script to initialize the Supabase schema:
+   - Navigate to the SQL Editor in your Neon dashboard
+   - Copy the contents of `scripts/init-neon.js` or use the provided script to initialize the Neon schema:
 
    ```bash
-   npm run init-supabase
+   npm run init:neon
    ```
 
-4. If you have existing data in your MySQL database, you can migrate it to Supabase:
+5. If you have existing data in another database, you can migrate it to Neon:
    ```bash
-   npm run migrate-to-supabase
+   # For MySQL data
+   npm run migrate-to-neon
    ```
 
-## Step 2: Create an Admin User in Supabase
+## Step 2: Create an Admin User in Neon
 
-1. Go to the Authentication section in your Supabase dashboard
-2. Click on "Users" and then "Add User"
-3. Create a user with the following details:
-   - Email: admin@example.com
-   - Password: password
-4. Go to the SQL Editor and run the following query to make this user an admin:
+1. Connect to your Neon database using the SQL Editor
+2. Run the following query to create an admin user:
    ```sql
-   INSERT INTO users (id, name, email, role, department)
+   INSERT INTO users (id, name, email, password, role, department)
    VALUES (
-     (SELECT id FROM auth.users WHERE email = 'admin@example.com'),
+     gen_random_uuid(),
      'Admin',
      'admin@example.com',
+     '$2a$10$JwRH.hMRVBRgFjD1Vl/w3OQjgvoGsUo1JaHXRpVJQQpEpszMJSJTK', -- password: 'password'
      'admin',
      'Management'
    );
@@ -59,8 +55,9 @@ This guide will walk you through the process of deploying the Gudang Mitra appli
    - Build command: `npm run build`
    - Publish directory: `dist`
 5. Add the following environment variables:
-   - `NEXT_PUBLIC_SUPABASE_URL`: Your Supabase project URL
-   - `NEXT_PUBLIC_SUPABASE_ANON_KEY`: Your Supabase anon key
+   - `NEON_CONNECTION_STRING`: Your Neon database connection string
+   - `JWT_SECRET`: A secure random string for JWT token generation
+   - `VITE_API_URL`: Your Netlify site URL (e.g., `https://your-site-name.netlify.app`)
 6. Click "Deploy site"
 
 ### Option 2: Deploy using Netlify CLI
@@ -86,8 +83,9 @@ This guide will walk you through the process of deploying the Gudang Mitra appli
 4. Set up environment variables:
 
    ```
-   netlify env:set NEXT_PUBLIC_SUPABASE_URL your-supabase-url
-   netlify env:set NEXT_PUBLIC_SUPABASE_ANON_KEY your-supabase-anon-key
+   netlify env:set NEON_CONNECTION_STRING your-neon-connection-string
+   netlify env:set JWT_SECRET your-jwt-secret
+   netlify env:set VITE_API_URL https://your-site-name.netlify.app
    ```
 
 5. Deploy your site:
@@ -141,9 +139,9 @@ fetch("/api/login", {
 If your functions are not working:
 
 1. Check the Netlify function logs in the Netlify dashboard
-2. Verify that your Supabase URL and anon key are correctly set as `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_ANON_KEY`
-3. Make sure the Supabase database is set up correctly
-4. Test the Supabase connection by visiting `/.netlify/functions/test-supabase`
+2. Verify that your Neon connection string is correctly set as `NEON_CONNECTION_STRING`
+3. Make sure the Neon database is set up correctly and accessible
+4. Test the database connection by visiting `/.netlify/functions/db/test`
 
 ### CORS Issues
 
@@ -156,6 +154,7 @@ If you're experiencing CORS issues:
 
 If you're having trouble with authentication:
 
-1. Check that the user exists in both Supabase Auth and the users table
+1. Check that the user exists in the users table in your Neon database
 2. Verify that the user has the correct role assigned
-3. Try resetting the password in the Supabase dashboard
+3. Try resetting the password by updating the password hash in the database
+4. Make sure the JWT_SECRET environment variable is correctly set

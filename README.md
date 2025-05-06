@@ -16,17 +16,18 @@ Gudang Mitra is a modern inventory management system designed to streamline the 
 
 - **Frontend**: React, TypeScript, Tailwind CSS
 - **Backend**: Node.js, Express
-- **Database**: Supabase (PostgreSQL)
+- **Database**: Neon (PostgreSQL)
 - **Deployment**: Netlify
 
 ## Deployment Options
 
 The application can be deployed using various methods:
 
-1. **Netlify**: Deploy using Netlify with Supabase as the database (recommended)
+1. **Netlify**: Deploy using Netlify with Neon as the database (recommended)
 2. **Hostinger**: Deploy to Hostinger with MySQL database
 3. **cPanel**: Deploy to cPanel with MySQL database
 4. **Local Development**: Run locally with MySQL or mock database
+5. **Supabase**: Deploy using Netlify with Supabase as the database
 
 ## Getting Started
 
@@ -39,17 +40,20 @@ The application can be deployed using various methods:
 ### Installation
 
 1. Clone the repository:
+
    ```bash
    git clone https://github.com/yourusername/gudang-mitra.git
    cd gudang-mitra
    ```
 
 2. Install dependencies:
+
    ```bash
    npm install
    ```
 
 3. Set up environment variables:
+
    - Copy `.env.example` to `.env`
    - Update the values in `.env` with your configuration
 
@@ -60,9 +64,20 @@ The application can be deployed using various methods:
 
 ## Deployment
 
-### Deploying to Netlify
+### Deploying to Netlify with Neon
 
-See [NETLIFY_DEPLOY.md](NETLIFY_DEPLOY.md) for detailed instructions on deploying to Netlify with Supabase.
+1. Make sure you have a Neon database set up at [neon.tech](https://neon.tech)
+2. Set your Neon connection string in the `.env.production` file
+3. Run the deployment script:
+   ```bash
+   npm run deploy-to-netlify
+   ```
+4. Set the following environment variables in your Netlify site settings:
+   - `NEON_CONNECTION_STRING`: Your Neon database connection string
+   - `JWT_SECRET`: A secret key for JWT token generation
+   - `VITE_API_URL`: Your Netlify functions API URL (usually `https://your-site-name.netlify.app`)
+
+See [NETLIFY_DEPLOY.md](NETLIFY_DEPLOY.md) for more detailed instructions.
 
 ### Deploying to Hostinger
 
@@ -80,5 +95,6 @@ This project is licensed under the MIT License - see the LICENSE file for detail
 
 - [React](https://reactjs.org/)
 - [Tailwind CSS](https://tailwindcss.com/)
-- [Supabase](https://supabase.com/)
+- [Neon](https://neon.tech/)
 - [Netlify](https://www.netlify.com/)
+- [Supabase](https://supabase.com/)

@@ -3,17 +3,39 @@
   publish = "dist"
   functions = "netlify/functions"
 
+[dev]
+  command = "npm run dev"
+  port = 5174
+  targetPort = 5174
+  publish = "dist"
+  autoLaunch = true
+
+# Proxy API requests to the backend server
 [[redirects]]
   from = "/api/*"
-  to = "/.netlify/functions/:splat"
+  to = "/.netlify/functions/api/:splat"
   status = 200
 
 [[redirects]]
   from = "/db/*"
-  to = "/.netlify/functions/db-:splat"
+  to = "/.netlify/functions/db/:splat"
   status = 200
 
+# Redirect all requests to index.html for SPA routing
 [[redirects]]
   from = "/*"
   to = "/index.html"
   status = 200
+
+# Environment variable settings
+[context.production.environment]
+  VITE_API_URL = "https://gudangmitra-api.netlify.app"
+  VITE_USE_MOCK_DATA = "false"
+
+[context.deploy-preview.environment]
+  VITE_API_URL = "https://gudangmitra-api.netlify.app"
+  VITE_USE_MOCK_DATA = "false"
+
+[context.branch-deploy.environment]
+  VITE_API_URL = "https://gudangmitra-api.netlify.app"
+  VITE_USE_MOCK_DATA = "false"

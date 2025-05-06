@@ -8,17 +8,19 @@ import {
   Grid,
   List,
   AlertTriangle,
+  Trash2,
 } from "lucide-react";
 import { InventoryItem } from "../../types/inventory";
 import { Button } from "../ui/Button";
 import { Input } from "../ui/Input";
 import { Select } from "../ui/Select";
 import { useInventory } from "../../context/InventoryContext";
-import { useCategories } from "../../hooks/useCategories";
+import { useCategories } from "../../context/CategoryContext";
 import { CategoryView } from "./CategoryView";
 import { Modal } from "../ui/Modal";
 import { ExcelImporter } from "./ExcelImporter";
 import { useLocation } from "react-router-dom";
+import { useAuth } from "../../context/AuthContext";
 
 interface InventoryTableProps {
   onEditItem: (item: InventoryItem) => void;
@@ -29,8 +31,10 @@ export const InventoryTable: React.FC<InventoryTableProps> = ({
   onEditItem,
   onAddItem,
 }) => {
-  const { inventoryItems, loading, fetchInventoryItems } = useInventory();
+  const { inventoryItems, loading, fetchInventoryItems, deleteInventoryItem } =
+    useInventory();
   const { categories } = useCategories();
+  const { user } = useAuth();
   const location = useLocation();
   const [searchQuery, setSearchQuery] = useState("");
   const [activeTab, setActiveTab] = useState<"items" | "categories">("items");
@@ -38,6 +42,9 @@ export const InventoryTable: React.FC<InventoryTableProps> = ({
   const [viewMode, setViewMode] = useState<"table" | "grid">("table");
   const [showImportModal, setShowImportModal] = useState(false);
   const [showLowStockOnly, setShowLowStockOnly] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+
+  const isAdminOrManager = user?.role === "admin" || user?.role === "manager";
 
   // Check if we're coming from the dashboard with low stock filter
   useEffect(() => {
@@ -82,6 +89,35 @@ export const InventoryTable: React.FC<InventoryTableProps> = ({
   const handleExportToExcel = () => {
     // This would be implemented with an Excel generation library
     alert("Export to Excel functionality would be implemented here");
+  };
+
+  const handleDeleteItem = async (item: InventoryItem) => {
+    if (!isAdminOrManager) {
+      alert("Only administrators and managers can delete inventory items");
+      return;
+    }
+
+    if (
+      window.confirm(
+        `Are you sure you want to delete "${item.name}"? This action cannot be undone.`
+      )
+    ) {
+      setDeleteError(null);
+      try {
+        const success = await deleteInventoryItem(item.id);
+        if (success) {
+          // Item was deleted successfully, refresh the list
+          fetchInventoryItems();
+        } else {
+          setDeleteError("Failed to delete item. Please try again.");
+        }
+      } catch (error) {
+        console.error("Error deleting item:", error);
+        setDeleteError(
+          error instanceof Error ? error.message : "An unknown error occurred"
+        );
+      }
+    }
   };
 
   const getCategoryName = (categoryId: string) => {
@@ -166,6 +202,42 @@ export const InventoryTable: React.FC<InventoryTableProps> = ({
           </Button>
         </div>
       </div>
+
+      {/* Delete error display */}
+      {deleteError && (
+        <div className="bg-error-50 border border-error-200 text-error-700 px-4 py-3 rounded-md mb-4">
+          <div className="flex">
+            <div className="flex-shrink-0">
+              <AlertTriangle className="h-5 w-5 text-error-400" />
+            </div>
+            <div className="ml-3">
+              <p className="text-sm font-medium">{deleteError}</p>
+            </div>
+            <div className="ml-auto pl-3">
+              <div className="-mx-1.5 -my-1.5">
+                <button
+                  type="button"
+                  className="inline-flex rounded-md p-1.5 text-error-500 hover:bg-error-100 focus:outline-none focus:ring-2 focus:ring-error-600 focus:ring-offset-2 focus:ring-offset-error-50"
+                  onClick={() => setDeleteError(null)}
+                >
+                  <span className="sr-only">Dismiss</span>
+                  <svg
+                    className="h-5 w-5"
+                    viewBox="0 0 20 20"
+                    fill="currentColor"
+                  >
+                    <path
+                      fillRule="evenodd"
+                      d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z"
+                      clipRule="evenodd"
+                    />
+                  </svg>
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Content */}
       {loading ? (
@@ -266,28 +338,43 @@ export const InventoryTable: React.FC<InventoryTableProps> = ({
                   </td>
                   <td className="px-6 py-4 text-center">
                     <div className="text-sm text-neutral-900">
-                      {item.quantityAvailable}
+                      {Number(item.quantityAvailable) || 0}
                     </div>
                   </td>
                   <td className="px-6 py-4 text-center">
                     <div className="text-sm text-neutral-900">
-                      {item.quantityReserved}
+                      {Number(item.quantityReserved) || 0}
                     </div>
                   </td>
                   <td className="px-6 py-4 text-center">
                     <div className="text-sm font-medium text-neutral-900">
-                      {item.quantityAvailable + item.quantityReserved}
+                      {(Number(item.quantityAvailable) || 0) +
+                        (Number(item.quantityReserved) || 0)}
                     </div>
                   </td>
                   <td className="px-6 py-4 text-right">
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => onEditItem(item)}
-                      className="text-primary-600 hover:text-primary-900"
-                    >
-                      <Edit className="h-4 w-4 text-blue-500" />
-                    </Button>
+                    <div className="flex justify-end space-x-1">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => onEditItem(item)}
+                        className="text-primary-600 hover:text-primary-900"
+                        title="Edit Item"
+                      >
+                        <Edit className="h-4 w-4 text-blue-500" />
+                      </Button>
+                      {isAdminOrManager && (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => handleDeleteItem(item)}
+                          className="text-error-600 hover:text-error-900"
+                          title="Delete Item"
+                        >
+                          <Trash2 className="h-4 w-4 text-red-500" />
+                        </Button>
+                      )}
+                    </div>
                   </td>
                 </tr>
               ))}

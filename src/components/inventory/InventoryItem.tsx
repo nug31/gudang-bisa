@@ -13,27 +13,40 @@ import { Badge } from "../ui/Badge";
 import { Button } from "../ui/Button";
 import { formatCurrency } from "../../utils/formatters";
 import { useInventory } from "../../context/InventoryContext";
+import { useAuth } from "../../context/AuthContext";
 
 interface InventoryItemProps {
   item: InventoryItemType;
   onEdit: (item: InventoryItemType) => void;
+  isAdminOrManager?: boolean;
 }
 
 export const InventoryItem: React.FC<InventoryItemProps> = ({
   item,
   onEdit,
+  isAdminOrManager,
 }) => {
   const { updateInventoryItem, deleteInventoryItem } = useInventory();
   const [isDeleting, setIsDeleting] = useState(false);
   const [isUpdatingQuantity, setIsUpdatingQuantity] = useState(false);
+  const { user } = useAuth();
 
   const handleDelete = async () => {
+    // Check if user has permission to delete
+    if (
+      !(isAdminOrManager || user?.role === "admin" || user?.role === "manager")
+    ) {
+      alert("Only administrators and managers can delete inventory items");
+      return;
+    }
+
     if (window.confirm(`Are you sure you want to delete "${item.name}"?`)) {
       setIsDeleting(true);
       try {
         await deleteInventoryItem(item.id);
       } catch (error) {
         console.error("Error deleting item:", error);
+        alert(error instanceof Error ? error.message : "Failed to delete item");
       } finally {
         setIsDeleting(false);
       }
@@ -43,9 +56,10 @@ export const InventoryItem: React.FC<InventoryItemProps> = ({
   const handleIncreaseQuantity = async () => {
     setIsUpdatingQuantity(true);
     try {
+      const currentQuantity = Number(item.quantityAvailable) || 0;
       await updateInventoryItem({
         id: item.id,
-        quantityAvailable: item.quantityAvailable + 1,
+        quantityAvailable: currentQuantity + 1,
       });
     } catch (error) {
       console.error("Error updating quantity:", error);
@@ -55,13 +69,14 @@ export const InventoryItem: React.FC<InventoryItemProps> = ({
   };
 
   const handleDecreaseQuantity = async () => {
-    if (item.quantityAvailable <= 0) return;
+    const currentQuantity = Number(item.quantityAvailable) || 0;
+    if (currentQuantity <= 0) return;
 
     setIsUpdatingQuantity(true);
     try {
       await updateInventoryItem({
         id: item.id,
-        quantityAvailable: item.quantityAvailable - 1,
+        quantityAvailable: currentQuantity - 1,
       });
     } catch (error) {
       console.error("Error updating quantity:", error);
@@ -71,9 +86,10 @@ export const InventoryItem: React.FC<InventoryItemProps> = ({
   };
 
   const getStockStatusBadge = () => {
-    if (item.quantityAvailable === 0) {
+    const quantity = Number(item.quantityAvailable) || 0;
+    if (quantity === 0) {
       return <Badge variant="danger">Out of Stock</Badge>;
-    } else if (item.quantityAvailable <= 5) {
+    } else if (quantity <= 5) {
       return <Badge variant="warning">Low Stock</Badge>;
     } else {
       return <Badge variant="success">In Stock</Badge>;
@@ -104,15 +120,19 @@ export const InventoryItem: React.FC<InventoryItemProps> = ({
               <Edit className="h-4 w-4 text-neutral-500" />
             </Button>
 
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={handleDelete}
-              isLoading={isDeleting}
-              title="Delete Item"
-            >
-              <Trash2 className="h-4 w-4 text-error-500" />
-            </Button>
+            {(isAdminOrManager ||
+              user?.role === "admin" ||
+              user?.role === "manager") && (
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={handleDelete}
+                isLoading={isDeleting}
+                title="Delete Item"
+              >
+                <Trash2 className="h-4 w-4 text-error-500" />
+              </Button>
+            )}
           </div>
         </div>
 
@@ -130,13 +150,18 @@ export const InventoryItem: React.FC<InventoryItemProps> = ({
                 variant="outline"
                 size="xs"
                 onClick={handleDecreaseQuantity}
-                disabled={item.quantityAvailable <= 0 || isUpdatingQuantity}
+                disabled={
+                  (Number(item.quantityAvailable) || 0) <= 0 ||
+                  isUpdatingQuantity
+                }
                 className="p-1"
               >
                 <Minus className="h-3 w-3" />
               </Button>
 
-              <span className="mx-2 font-medium">{item.quantityAvailable}</span>
+              <span className="mx-2 font-medium">
+                {Number(item.quantityAvailable) || 0}
+              </span>
 
               <Button
                 variant="outline"
@@ -152,7 +177,9 @@ export const InventoryItem: React.FC<InventoryItemProps> = ({
 
           <div>
             <p className="text-xs text-neutral-500">Reserved</p>
-            <p className="font-medium mt-1">{item.quantityReserved}</p>
+            <p className="font-medium mt-1">
+              {Number(item.quantityReserved) || 0}
+            </p>
           </div>
         </div>
 

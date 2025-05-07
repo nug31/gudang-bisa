@@ -45,32 +45,30 @@ exports.handler = async (event, context) => {
     switch (action) {
       case "getAll":
         try {
-          // Get all categories
+          // Get all categories with item counts in a single query
           const result = await query(`
             SELECT
               c.id,
               c.name,
-              c.description
+              c.description,
+              COUNT(i.id) as item_count
             FROM
               categories c
+            LEFT JOIN
+              inventory_items i ON c.id = i.category_id
+            GROUP BY
+              c.id, c.name, c.description
             ORDER BY
               c.name
           `);
 
-          // Get item counts for each category
-          const categories = result.rows;
-          for (const category of categories) {
-            const countResult = await query(
-              `
-              SELECT COUNT(*) as count
-              FROM inventory_items
-              WHERE category_id = $1
-            `,
-              [category.id]
-            );
-
-            category.itemCount = parseInt(countResult.rows[0].count) || 0;
-          }
+          // Transform the data to include itemCount
+          const categories = result.rows.map((category) => ({
+            id: category.id,
+            name: category.name,
+            description: category.description,
+            itemCount: parseInt(category.item_count) || 0,
+          }));
 
           return {
             statusCode: 200,
@@ -102,17 +100,22 @@ exports.handler = async (event, context) => {
         try {
           const id = data.id;
 
-          // Get category by ID
+          // Get category by ID with item count in a single query
           const result = await query(
             `
             SELECT
-              id,
-              name,
-              description
+              c.id,
+              c.name,
+              c.description,
+              COUNT(i.id) as item_count
             FROM
-              categories
+              categories c
+            LEFT JOIN
+              inventory_items i ON c.id = i.category_id
             WHERE
-              id = $1
+              c.id = $1
+            GROUP BY
+              c.id, c.name, c.description
           `,
             [id]
           );
@@ -125,19 +128,13 @@ exports.handler = async (event, context) => {
             };
           }
 
-          const category = result.rows[0];
-
-          // Get item count for the category
-          const countResult = await query(
-            `
-            SELECT COUNT(*) as count
-            FROM inventory_items
-            WHERE category_id = $1
-          `,
-            [id]
-          );
-
-          category.itemCount = parseInt(countResult.rows[0].count) || 0;
+          // Transform the data to include itemCount
+          const category = {
+            id: result.rows[0].id,
+            name: result.rows[0].name,
+            description: result.rows[0].description,
+            itemCount: parseInt(result.rows[0].item_count) || 0,
+          };
 
           return {
             statusCode: 200,

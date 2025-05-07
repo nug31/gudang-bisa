@@ -45,8 +45,11 @@ exports.handler = async (event, context) => {
     switch (action) {
       case "getAll":
         try {
-          // Get all inventory items with category information
-          const result = await query(`
+          // Check if a category filter is provided
+          const categoryId = data.categoryId;
+
+          // Build the query based on whether a category filter is provided
+          let queryText = `
             SELECT
               i.id,
               i.name,
@@ -65,9 +68,21 @@ exports.handler = async (event, context) => {
               inventory_items i
             LEFT JOIN
               categories c ON i.category_id = c.id
-            ORDER BY
-              i.name
-          `);
+          `;
+
+          const queryParams = [];
+
+          // Add category filter if provided
+          if (categoryId) {
+            queryText += ` WHERE i.category_id = $1`;
+            queryParams.push(categoryId);
+          }
+
+          // Add order by clause
+          queryText += ` ORDER BY i.name`;
+
+          // Execute the query
+          const result = await query(queryText, queryParams);
 
           // Transform the data to match the frontend model
           const transformedItems = result.rows.map((item) => ({

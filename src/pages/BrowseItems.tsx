@@ -17,7 +17,7 @@ export const BrowseItems = () => {
   const [searchTerm, setSearchTerm] = useState("");
   const [selectedCategory, setSelectedCategory] = useState("all");
 
-  const fetchInventoryItems = async (retryCount = 0) => {
+  const fetchInventoryItems = async (categoryId = null, retryCount = 0) => {
     try {
       setLoading(true);
       setError(null);
@@ -26,15 +26,23 @@ export const BrowseItems = () => {
         `Fetching inventory items in BrowseItems (attempt ${retryCount + 1})...`
       );
 
+      // Prepare request body with optional category filter
+      const requestBody = {
+        action: "getAll",
+      };
+
+      // Add category filter if not "all"
+      if (categoryId && categoryId !== "all") {
+        requestBody.categoryId = categoryId;
+      }
+
       // Try the API endpoint first
       const response = await fetch("/api/inventory", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({
-          action: "getAll",
-        }),
+        body: JSON.stringify(requestBody),
       });
 
       if (!response.ok) {
@@ -46,9 +54,7 @@ export const BrowseItems = () => {
           headers: {
             "Content-Type": "application/json",
           },
-          body: JSON.stringify({
-            action: "getAll",
-          }),
+          body: JSON.stringify(requestBody),
         });
 
         if (!fallbackResponse.ok) {
@@ -58,7 +64,7 @@ export const BrowseItems = () => {
             setLoading(false);
             // Wait a bit before retrying
             await new Promise((resolve) => setTimeout(resolve, 1000));
-            return fetchInventoryItems(retryCount + 1);
+            return fetchInventoryItems(categoryId, retryCount + 1);
           }
 
           throw new Error("Failed to fetch inventory items");
@@ -199,20 +205,16 @@ export const BrowseItems = () => {
     }
   };
 
+  // Fetch items when component mounts or when category changes
   useEffect(() => {
-    fetchInventoryItems();
-  }, []);
+    fetchInventoryItems(selectedCategory);
+  }, [selectedCategory]);
 
-  // Filter items when search term or category changes
+  // Filter items when search term changes
   useEffect(() => {
     let result = items;
 
-    // Filter by category
-    if (selectedCategory !== "all") {
-      result = result.filter((item) => item.categoryId === selectedCategory);
-    }
-
-    // Filter by search term
+    // Filter by search term only (category filtering is done on the server)
     if (searchTerm) {
       const term = searchTerm.toLowerCase();
       result = result.filter(
@@ -224,7 +226,7 @@ export const BrowseItems = () => {
     }
 
     setFilteredItems(result);
-  }, [items, searchTerm, selectedCategory]);
+  }, [items, searchTerm]);
 
   const handleRequestItem = (item: InventoryItem) => {
     // Navigate to the new request page with the item pre-selected

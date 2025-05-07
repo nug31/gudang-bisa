@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Database Query Tool</title>
+  <style>
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif;
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 20px;
+    }
+    h1 {
+      color: #333;
+    }
+    textarea {
+      width: 100%;
+      height: 150px;
+      margin-bottom: 10px;
+      padding: 10px;
+      font-family: monospace;
+    }
+    button {
+      background-color: #0070f3;
+      color: white;
+      border: none;
+      padding: 10px 20px;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 16px;
+    }
+    button:hover {
+      background-color: #0051a8;
+    }
+    pre {
+      background-color: #f5f5f5;
+      padding: 15px;
+      border-radius: 4px;
+      overflow: auto;
+      max-height: 500px;
+    }
+    .query-container {
+      margin-bottom: 20px;
+    }
+    .result-container {
+      margin-top: 20px;
+    }
+    .error {
+      color: red;
+    }
+    .success {
+      color: green;
+    }
+    .preset-queries {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin-bottom: 20px;
+    }
+    .preset-query {
+      background-color: #f0f0f0;
+      border: 1px solid #ddd;
+      padding: 8px 15px;
+      border-radius: 4px;
+      cursor: pointer;
+    }
+    .preset-query:hover {
+      background-color: #e0e0e0;
+    }
+  </style>
+</head>
+<body>
+  <h1>Database Query Tool</h1>
+  
+  <div class="preset-queries">
+    <div class="preset-query" onclick="setPresetQuery('categories')">List Categories</div>
+    <div class="preset-query" onclick="setPresetQuery('items')">List Items</div>
+    <div class="preset-query" onclick="setPresetQuery('itemsWithCategories')">Items with Categories</div>
+    <div class="preset-query" onclick="setPresetQuery('categoryCount')">Category Item Counts</div>
+    <div class="preset-query" onclick="setPresetQuery('resetSequences')">Reset Sequences</div>
+    <div class="preset-query" onclick="setPresetQuery('fixCategories')">Fix Categories</div>
+  </div>
+  
+  <div class="query-container">
+    <h2>SQL Query</h2>
+    <textarea id="query-input" placeholder="Enter your SQL query here..."></textarea>
+    <div>
+      <button onclick="executeQuery()">Execute Query</button>
+    </div>
+  </div>
+  
+  <div class="result-container">
+    <h2>Result</h2>
+    <div id="status"></div>
+    <pre id="result-output">Results will appear here...</pre>
+  </div>
+
+  <script>
+    const presetQueries = {
+      categories: `SELECT * FROM categories ORDER BY id`,
+      items: `SELECT * FROM inventory_items ORDER BY id`,
+      itemsWithCategories: `
+SELECT 
+  i.id, 
+  i.name, 
+  i.description, 
+  i.category_id, 
+  c.name as category_name
+FROM 
+  inventory_items i
+LEFT JOIN 
+  categories c ON i.category_id = c.id
+ORDER BY 
+  i.id`,
+      categoryCount: `
+SELECT 
+  c.id, 
+  c.name, 
+  COUNT(i.id) as item_count
+FROM 
+  categories c
+LEFT JOIN 
+  inventory_items i ON c.id = i.category_id
+GROUP BY 
+  c.id, c.name
+ORDER BY 
+  c.id`,
+      resetSequences: `
+ALTER SEQUENCE categories_id_seq RESTART WITH 1;
+ALTER SEQUENCE inventory_items_id_seq RESTART WITH 1;
+SELECT 'Sequences reset' as message`,
+      fixCategories: `
+UPDATE inventory_items 
+SET category_id = (
+  SELECT id FROM categories WHERE name = 'Office Supplies'
+)
+WHERE category_id IS NULL OR category_id NOT IN (SELECT id FROM categories);
+SELECT 'Categories fixed' as message`
+    };
+
+    function setPresetQuery(queryName) {
+      document.getElementById('query-input').value = presetQueries[queryName];
+    }
+
+    async function executeQuery() {
+      const queryInput = document.getElementById('query-input').value;
+      const statusElement = document.getElementById('status');
+      const resultOutput = document.getElementById('result-output');
+      
+      if (!queryInput.trim()) {
+        statusElement.innerHTML = '<span class="error">Please enter a query</span>';
+        return;
+      }
+      
+      statusElement.innerHTML = 'Executing query...';
+      
+      try {
+        const response = await fetch('/.netlify/functions/direct-query', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            query: queryInput
+          }),
+        });
+        
+        const data = await response.json();
+        
+        if (response.ok) {
+          statusElement.innerHTML = `<span class="success">Query executed successfully. Rows: ${data.rowCount}</span>`;
+          resultOutput.textContent = JSON.stringify(data.result, null, 2);
+        } else {
+          statusElement.innerHTML = `<span class="error">Error: ${data.message}</span>`;
+          resultOutput.textContent = JSON.stringify(data, null, 2);
+        }
+      } catch (error) {
+        statusElement.innerHTML = `<span class="error">Error: ${error.message}</span>`;
+        resultOutput.textContent = error.toString();
+      }
+    }
+  </script>
+</body>
+</html>

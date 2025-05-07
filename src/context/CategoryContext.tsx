@@ -49,7 +49,7 @@ export const CategoryProvider: React.FC<CategoryProviderProps> = ({
     setError(null);
 
     try {
-      const response = await fetch("/db/categories", {
+      const response = await fetch("/.netlify/functions/db-categories", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -112,7 +112,7 @@ export const CategoryProvider: React.FC<CategoryProviderProps> = ({
         );
       }
 
-      const response = await fetch("/db/categories", {
+      const response = await fetch("/.netlify/functions/db-categories", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -157,7 +157,7 @@ export const CategoryProvider: React.FC<CategoryProviderProps> = ({
         );
       }
 
-      const response = await fetch("/db/categories", {
+      const response = await fetch("/.netlify/functions/db-categories", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -204,7 +204,7 @@ export const CategoryProvider: React.FC<CategoryProviderProps> = ({
         );
       }
 
-      const response = await fetch("/db/categories", {
+      const response = await fetch("/.netlify/functions/db-categories", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",

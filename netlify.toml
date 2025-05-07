@@ -21,6 +21,21 @@
   to = "/.netlify/functions/db/:splat"
   status = 200
 
+[[redirects]]
+  from = "/api/inventory"
+  to = "/.netlify/functions/inventory"
+  status = 200
+
+[[redirects]]
+  from = "/db/inventory"
+  to = "/.netlify/functions/db-inventory"
+  status = 200
+
+[[redirects]]
+  from = "/db/categories"
+  to = "/.netlify/functions/db-categories"
+  status = 200
+
 # Redirect all requests to index.html for SPA routing
 [[redirects]]
   from = "/*"

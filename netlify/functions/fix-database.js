@@ -412,69 +412,84 @@ exports.handler = async (event, context) => {
       }
     }
 
+    // If resetting the database, delete all items first
+    if (resetDatabase) {
+      await query("DELETE FROM inventory_items");
+    }
+
     // Insert sample items
     let itemsAdded = 0;
 
-    for (const item of sampleItems) {
-      // Check if item already exists
-      const existingItemResult = await query(
-        "SELECT id FROM inventory_items WHERE sku = $1",
-        [item.sku]
-      );
+    // Process items in batches to avoid timeouts
+    const batchSize = 5;
+    for (let i = 0; i < sampleItems.length; i += batchSize) {
+      const batch = sampleItems.slice(i, i + batchSize);
 
-      if (existingItemResult.rows.length > 0) {
-        // Update existing item
-        await query(
-          `UPDATE inventory_items SET
-            name = $1,
-            description = $2,
-            category_id = $3,
-            quantity_available = $4,
-            quantity_reserved = $5,
-            unit_price = $6,
-            location = $7,
-            image_url = $8
-          WHERE sku = $9`,
-          [
-            item.name,
-            item.description,
-            categoryMap[item.category_name],
-            item.quantity_available,
-            item.quantity_reserved,
-            item.unit_price,
-            item.location,
-            item.image_url,
-            item.sku,
-          ]
-        );
-      } else {
-        // Insert new item
-        await query(
-          `INSERT INTO inventory_items (
-            name,
-            description,
-            category_id,
-            sku,
-            quantity_available,
-            quantity_reserved,
-            unit_price,
-            location,
-            image_url
-          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
-          [
-            item.name,
-            item.description,
-            categoryMap[item.category_name],
-            item.sku,
-            item.quantity_available,
-            item.quantity_reserved,
-            item.unit_price,
-            item.location,
-            item.image_url,
-          ]
-        );
+      for (const item of batch) {
+        try {
+          // Check if item already exists
+          const existingItemResult = await query(
+            "SELECT id FROM inventory_items WHERE sku = $1",
+            [item.sku]
+          );
 
-        itemsAdded++;
+          if (existingItemResult.rows.length > 0) {
+            // Update existing item
+            await query(
+              `UPDATE inventory_items SET
+                name = $1,
+                description = $2,
+                category_id = $3,
+                quantity_available = $4,
+                quantity_reserved = $5,
+                unit_price = $6,
+                location = $7,
+                image_url = $8
+              WHERE sku = $9`,
+              [
+                item.name,
+                item.description,
+                categoryMap[item.category_name],
+                item.quantity_available,
+                item.quantity_reserved,
+                item.unit_price,
+                item.location,
+                item.image_url,
+                item.sku,
+              ]
+            );
+          } else {
+            // Insert new item
+            await query(
+              `INSERT INTO inventory_items (
+                name,
+                description,
+                category_id,
+                sku,
+                quantity_available,
+                quantity_reserved,
+                unit_price,
+                location,
+                image_url
+              ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+              [
+                item.name,
+                item.description,
+                categoryMap[item.category_name],
+                item.sku,
+                item.quantity_available,
+                item.quantity_reserved,
+                item.unit_price,
+                item.location,
+                item.image_url,
+              ]
+            );
+
+            itemsAdded++;
+          }
+        } catch (error) {
+          console.error(`Error processing item ${item.name}:`, error);
+        }
       }
     }
 

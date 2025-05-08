@@ -62,8 +62,8 @@ async function deployToNetlify() {
       "\nImportant: Make sure to set the following environment variables in your Netlify site settings:"
     );
     console.log("- NEON_CONNECTION_STRING");
-    console.log("- JWT_SECRET");
-    console.log("- VITE_API_URL");
+    console.log("- NODE_ENV=production");
+    console.log("- USE_MOCK_DB=false");
   } catch (error) {
     console.error("Deployment failed:", error);
     process.exit(1);

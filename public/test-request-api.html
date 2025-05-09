@@ -1,0 +1,371 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Test Request API</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif;
+            line-height: 1.6;
+            color: #333;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        h1, h2 {
+            color: #2563eb;
+        }
+        .card {
+            background-color: #fff;
+            border-radius: 8px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            padding: 20px;
+            margin-bottom: 20px;
+        }
+        .form-group {
+            margin-bottom: 15px;
+        }
+        label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: 500;
+        }
+        input, select, textarea {
+            width: 100%;
+            padding: 8px 12px;
+            border: 1px solid #d1d5db;
+            border-radius: 4px;
+            font-size: 14px;
+        }
+        textarea {
+            min-height: 100px;
+        }
+        .button {
+            background-color: #2563eb;
+            color: white;
+            border: none;
+            padding: 10px 15px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 14px;
+            transition: background-color 0.3s;
+        }
+        .button:hover {
+            background-color: #1d4ed8;
+        }
+        .button:disabled {
+            background-color: #93c5fd;
+            cursor: not-allowed;
+        }
+        .status {
+            margin-top: 10px;
+            padding: 10px;
+            border-radius: 4px;
+        }
+        .status.success {
+            background-color: #d1fae5;
+            color: #065f46;
+        }
+        .status.error {
+            background-color: #fee2e2;
+            color: #b91c1c;
+        }
+        .status.loading {
+            background-color: #e0f2fe;
+            color: #0369a1;
+        }
+        pre {
+            background-color: #f1f5f9;
+            padding: 15px;
+            border-radius: 4px;
+            overflow-x: auto;
+            font-size: 14px;
+        }
+        .tabs {
+            display: flex;
+            border-bottom: 1px solid #e5e7eb;
+            margin-bottom: 20px;
+        }
+        .tab {
+            padding: 10px 20px;
+            cursor: pointer;
+            border-bottom: 2px solid transparent;
+        }
+        .tab.active {
+            border-bottom: 2px solid #2563eb;
+            color: #2563eb;
+            font-weight: 500;
+        }
+        .tab-content {
+            display: none;
+        }
+        .tab-content.active {
+            display: block;
+        }
+    </style>
+</head>
+<body>
+    <h1>Test Request API</h1>
+    
+    <div class="tabs">
+        <div class="tab active" data-tab="direct-api">Direct API</div>
+        <div class="tab" data-tab="db-api">DB API</div>
+        <div class="tab" data-tab="request-form">Request Form</div>
+    </div>
+    
+    <div id="direct-api" class="tab-content active">
+        <div class="card">
+            <h2>Test Direct API Endpoint</h2>
+            <form id="directApiForm">
+                <div class="form-group">
+                    <label for="direct-title">Title*</label>
+                    <input type="text" id="direct-title" name="title" required value="Test Direct API Request">
+                </div>
+                
+                <div class="form-group">
+                    <label for="direct-description">Description</label>
+                    <textarea id="direct-description" name="description">This is a test request created via direct API</textarea>
+                </div>
+                
+                <div class="form-group">
+                    <label for="direct-userId">User ID*</label>
+                    <input type="text" id="direct-userId" name="userId" required>
+                </div>
+                
+                <div class="form-group">
+                    <label for="direct-inventoryItemId">Inventory Item ID*</label>
+                    <input type="text" id="direct-inventoryItemId" name="inventoryItemId" required>
+                </div>
+                
+                <div class="form-group">
+                    <label for="direct-quantity">Quantity*</label>
+                    <input type="number" id="direct-quantity" name="quantity" min="1" value="1" required>
+                </div>
+                
+                <div class="form-group">
+                    <label for="direct-priority">Priority</label>
+                    <select id="direct-priority" name="priority">
+                        <option value="low">Low</option>
+                        <option value="medium" selected>Medium</option>
+                        <option value="high">High</option>
+                        <option value="critical">Critical</option>
+                    </select>
+                </div>
+                
+                <button type="submit" class="button" id="directApiButton">Test Direct API</button>
+            </form>
+            
+            <div id="directApiStatus" class="status" style="display: none;"></div>
+            <pre id="directApiResponse" style="display: none;"></pre>
+        </div>
+    </div>
+    
+    <div id="db-api" class="tab-content">
+        <div class="card">
+            <h2>Test DB API Endpoint</h2>
+            <form id="dbApiForm">
+                <div class="form-group">
+                    <label for="db-title">Title*</label>
+                    <input type="text" id="db-title" name="title" required value="Test DB API Request">
+                </div>
+                
+                <div class="form-group">
+                    <label for="db-description">Description</label>
+                    <textarea id="db-description" name="description">This is a test request created via DB API</textarea>
+                </div>
+                
+                <div class="form-group">
+                    <label for="db-userId">User ID*</label>
+                    <input type="text" id="db-userId" name="userId" required>
+                </div>
+                
+                <div class="form-group">
+                    <label for="db-inventoryItemId">Inventory Item ID*</label>
+                    <input type="text" id="db-inventoryItemId" name="inventoryItemId" required>
+                </div>
+                
+                <div class="form-group">
+                    <label for="db-quantity">Quantity*</label>
+                    <input type="number" id="db-quantity" name="quantity" min="1" value="1" required>
+                </div>
+                
+                <div class="form-group">
+                    <label for="db-priority">Priority</label>
+                    <select id="db-priority" name="priority">
+                        <option value="low">Low</option>
+                        <option value="medium" selected>Medium</option>
+                        <option value="high">High</option>
+                        <option value="critical">Critical</option>
+                    </select>
+                </div>
+                
+                <button type="submit" class="button" id="dbApiButton">Test DB API</button>
+            </form>
+            
+            <div id="dbApiStatus" class="status" style="display: none;"></div>
+            <pre id="dbApiResponse" style="display: none;"></pre>
+        </div>
+    </div>
+    
+    <div id="request-form" class="tab-content">
+        <div class="card">
+            <h2>Test Request Form</h2>
+            <p>This simulates the actual request form submission process.</p>
+            <button id="testRequestForm" class="button">Test Request Form</button>
+            <div id="requestFormStatus" class="status" style="display: none;"></div>
+            <pre id="requestFormResponse" style="display: none;"></pre>
+        </div>
+    </div>
+    
+    <script>
+        // Get current user ID from localStorage
+        let currentUserId = '';
+        try {
+            const userJson = localStorage.getItem('user');
+            if (userJson) {
+                const user = JSON.parse(userJson);
+                currentUserId = user.id;
+                
+                // Pre-fill user ID fields
+                document.getElementById('direct-userId').value = currentUserId;
+                document.getElementById('db-userId').value = currentUserId;
+            }
+        } catch (e) {
+            console.error('Error getting user from localStorage:', e);
+        }
+        
+        // Tab switching
+        document.querySelectorAll('.tab').forEach(tab => {
+            tab.addEventListener('click', () => {
+                // Remove active class from all tabs
+                document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+                document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+                
+                // Add active class to clicked tab
+                tab.classList.add('active');
+                const tabId = tab.getAttribute('data-tab');
+                document.getElementById(tabId).classList.add('active');
+            });
+        });
+        
+        // Direct API form submission
+        document.getElementById('directApiForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            
+            const form = e.target;
+            const button = document.getElementById('directApiButton');
+            const statusEl = document.getElementById('directApiStatus');
+            const responseEl = document.getElementById('directApiResponse');
+            
+            // Get form data
+            const formData = {
+                title: form.title.value,
+                description: form.description.value,
+                userId: form.userId.value,
+                inventoryItemId: form.inventoryItemId.value,
+                quantity: parseInt(form.quantity.value, 10),
+                priority: form.priority.value
+            };
+            
+            try {
+                button.disabled = true;
+                statusEl.className = 'status loading';
+                statusEl.textContent = 'Testing direct API...';
+                statusEl.style.display = 'block';
+                responseEl.style.display = 'none';
+                
+                // Send request to item-requests endpoint
+                const response = await fetch('/.netlify/functions/item-requests', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(formData)
+                });
+                
+                const data = await response.json();
+                
+                responseEl.textContent = JSON.stringify(data, null, 2);
+                responseEl.style.display = 'block';
+                
+                if (response.ok) {
+                    statusEl.className = 'status success';
+                    statusEl.textContent = 'Direct API test successful!';
+                } else {
+                    statusEl.className = 'status error';
+                    statusEl.textContent = `Error: ${data.message || data.error || 'Unknown error'}`;
+                }
+            } catch (error) {
+                statusEl.className = 'status error';
+                statusEl.textContent = `Error: ${error.message}`;
+                responseEl.textContent = error.stack || error.message;
+                responseEl.style.display = 'block';
+            } finally {
+                button.disabled = false;
+            }
+        });
+        
+        // DB API form submission
+        document.getElementById('dbApiForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            
+            const form = e.target;
+            const button = document.getElementById('dbApiButton');
+            const statusEl = document.getElementById('dbApiStatus');
+            const responseEl = document.getElementById('dbApiResponse');
+            
+            // Get form data
+            const requestData = {
+                title: form.title.value,
+                description: form.description.value,
+                userId: form.userId.value,
+                inventoryItemId: form.inventoryItemId.value,
+                quantity: parseInt(form.quantity.value, 10),
+                priority: form.priority.value,
+                status: 'pending'
+            };
+            
+            try {
+                button.disabled = true;
+                statusEl.className = 'status loading';
+                statusEl.textContent = 'Testing DB API...';
+                statusEl.style.display = 'block';
+                responseEl.style.display = 'none';
+                
+                // Send request to db-requests endpoint
+                const response = await fetch('/.netlify/functions/db-requests', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        action: 'create',
+                        request: requestData
+                    })
+                });
+                
+                const data = await response.json();
+                
+                responseEl.textContent = JSON.stringify(data, null, 2);
+                responseEl.style.display = 'block';
+                
+                if (response.ok) {
+                    statusEl.className = 'status success';
+                    statusEl.textContent = 'DB API test successful!';
+                } else {
+                    statusEl.className = 'status error';
+                    statusEl.textContent = `Error: ${data.message || data.error || 'Unknown error'}`;
+                }
+            } catch (error) {
+                statusEl.className = 'status error';
+                statusEl.textContent = `Error: ${error.message}`;
+                responseEl.textContent = error.stack || error.message;
+                responseEl.style.display = 'block';
+            } finally {
+                button.disabled = false;
+            }
+        });
+    </script>
+</body>
+</html>

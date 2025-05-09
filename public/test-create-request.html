@@ -1,0 +1,263 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Test Create Item Request</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif;
+            line-height: 1.6;
+            color: #333;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        h1 {
+            color: #2563eb;
+            margin-bottom: 20px;
+        }
+        .card {
+            background-color: #fff;
+            border-radius: 8px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            padding: 20px;
+            margin-bottom: 20px;
+        }
+        .form-group {
+            margin-bottom: 15px;
+        }
+        label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: 500;
+        }
+        input, select, textarea {
+            width: 100%;
+            padding: 8px 12px;
+            border: 1px solid #d1d5db;
+            border-radius: 4px;
+            font-size: 14px;
+        }
+        textarea {
+            min-height: 100px;
+        }
+        .button {
+            background-color: #2563eb;
+            color: white;
+            border: none;
+            padding: 10px 15px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 14px;
+            transition: background-color 0.3s;
+        }
+        .button:hover {
+            background-color: #1d4ed8;
+        }
+        .button:disabled {
+            background-color: #93c5fd;
+            cursor: not-allowed;
+        }
+        .status {
+            margin-top: 10px;
+            padding: 10px;
+            border-radius: 4px;
+        }
+        .status.success {
+            background-color: #d1fae5;
+            color: #065f46;
+        }
+        .status.error {
+            background-color: #fee2e2;
+            color: #b91c1c;
+        }
+        .status.loading {
+            background-color: #e0f2fe;
+            color: #0369a1;
+        }
+        pre {
+            background-color: #f1f5f9;
+            padding: 15px;
+            border-radius: 4px;
+            overflow-x: auto;
+            font-size: 14px;
+        }
+    </style>
+</head>
+<body>
+    <h1>Test Create Item Request</h1>
+    
+    <div class="card">
+        <h2>Create New Request</h2>
+        <form id="requestForm">
+            <div class="form-group">
+                <label for="title">Project Name/Title*</label>
+                <input type="text" id="title" name="title" required>
+            </div>
+            
+            <div class="form-group">
+                <label for="description">Description*</label>
+                <textarea id="description" name="description" required></textarea>
+            </div>
+            
+            <div class="form-group">
+                <label for="userId">User ID*</label>
+                <input type="text" id="userId" name="userId" required>
+            </div>
+            
+            <div class="form-group">
+                <label for="category">Category ID*</label>
+                <input type="text" id="category" name="category" required>
+            </div>
+            
+            <div class="form-group">
+                <label for="priority">Priority</label>
+                <select id="priority" name="priority">
+                    <option value="low">Low</option>
+                    <option value="medium" selected>Medium</option>
+                    <option value="high">High</option>
+                    <option value="critical">Critical</option>
+                </select>
+            </div>
+            
+            <div class="form-group">
+                <label for="quantity">Quantity</label>
+                <input type="number" id="quantity" name="quantity" min="1" value="1">
+            </div>
+            
+            <button type="submit" class="button" id="submitButton">Create Request</button>
+        </form>
+        
+        <div id="status" class="status" style="display: none;"></div>
+        <pre id="response" style="display: none;"></pre>
+    </div>
+    
+    <div class="card">
+        <h2>Test Direct API Endpoint</h2>
+        <button id="testDirectApi" class="button">Test Direct API</button>
+        <div id="directApiStatus" class="status" style="display: none;"></div>
+        <pre id="directApiResponse" style="display: none;"></pre>
+    </div>
+    
+    <script>
+        // Base URL for API endpoints
+        const API_BASE_URL = '/.netlify/functions';
+        
+        // Form submission
+        document.getElementById('requestForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            
+            const form = e.target;
+            const submitButton = document.getElementById('submitButton');
+            const statusEl = document.getElementById('status');
+            const responseEl = document.getElementById('response');
+            
+            // Get form data
+            const formData = {
+                title: form.title.value,
+                description: form.description.value,
+                userId: form.userId.value,
+                category: form.category.value,
+                priority: form.priority.value,
+                quantity: parseInt(form.quantity.value, 10),
+                status: 'pending'
+            };
+            
+            try {
+                submitButton.disabled = true;
+                statusEl.className = 'status loading';
+                statusEl.textContent = 'Creating request...';
+                statusEl.style.display = 'block';
+                responseEl.style.display = 'none';
+                
+                // Send request to db-requests endpoint
+                const response = await fetch(`${API_BASE_URL}/db-requests`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        action: 'create',
+                        request: formData
+                    })
+                });
+                
+                const data = await response.json();
+                
+                responseEl.textContent = JSON.stringify(data, null, 2);
+                responseEl.style.display = 'block';
+                
+                if (response.ok) {
+                    statusEl.className = 'status success';
+                    statusEl.textContent = 'Request created successfully!';
+                } else {
+                    statusEl.className = 'status error';
+                    statusEl.textContent = `Error: ${data.message || 'Unknown error'}`;
+                }
+            } catch (error) {
+                statusEl.className = 'status error';
+                statusEl.textContent = `Error: ${error.message}`;
+                responseEl.textContent = error.stack || error.message;
+                responseEl.style.display = 'block';
+            } finally {
+                submitButton.disabled = false;
+            }
+        });
+        
+        // Test direct API endpoint
+        document.getElementById('testDirectApi').addEventListener('click', async () => {
+            const button = document.getElementById('testDirectApi');
+            const statusEl = document.getElementById('directApiStatus');
+            const responseEl = document.getElementById('directApiResponse');
+            
+            try {
+                button.disabled = true;
+                statusEl.className = 'status loading';
+                statusEl.textContent = 'Testing direct API...';
+                statusEl.style.display = 'block';
+                responseEl.style.display = 'none';
+                
+                // Create a test request
+                const testRequest = {
+                    title: 'Test Request',
+                    description: 'This is a test request created via direct API',
+                    user_id: '00000000-0000-0000-0000-000000000000', // Replace with a valid user ID
+                    category_id: '00000000-0000-0000-0000-000000000000', // Replace with a valid category ID
+                    priority: 'medium',
+                    quantity: 1
+                };
+                
+                // Send request to item-requests endpoint
+                const response = await fetch(`${API_BASE_URL}/item-requests`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(testRequest)
+                });
+                
+                const data = await response.json();
+                
+                responseEl.textContent = JSON.stringify(data, null, 2);
+                responseEl.style.display = 'block';
+                
+                if (response.ok) {
+                    statusEl.className = 'status success';
+                    statusEl.textContent = 'Direct API test successful!';
+                } else {
+                    statusEl.className = 'status error';
+                    statusEl.textContent = `Error: ${data.error || 'Unknown error'}`;
+                }
+            } catch (error) {
+                statusEl.className = 'status error';
+                statusEl.textContent = `Error: ${error.message}`;
+                responseEl.textContent = error.stack || error.message;
+                responseEl.style.display = 'block';
+            } finally {
+                button.disabled = false;
+            }
+        });
+    </script>
+</body>
+</html>

@@ -36,6 +36,11 @@
   to = "/.netlify/functions/db-categories"
   status = 200
 
+[[redirects]]
+  from = "/neon/fix-categories"
+  to = "/.netlify/functions/fix-categories"
+  status = 200
+
 # Redirect all requests to index.html for SPA routing
 [[redirects]]
   from = "/*"

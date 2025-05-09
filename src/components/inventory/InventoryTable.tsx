@@ -338,18 +338,18 @@ export const InventoryTable: React.FC<InventoryTableProps> = ({
                   </td>
                   <td className="px-6 py-4 text-center">
                     <div className="text-sm text-neutral-900">
-                      {Number(item.quantityAvailable) || 0}
+                      {Number(item.quantityAvailable || 0)}
                     </div>
                   </td>
                   <td className="px-6 py-4 text-center">
                     <div className="text-sm text-neutral-900">
-                      {Number(item.quantityReserved) || 0}
+                      {Number(item.quantityReserved || 0)}
                     </div>
                   </td>
                   <td className="px-6 py-4 text-center">
                     <div className="text-sm font-medium text-neutral-900">
-                      {(Number(item.quantityAvailable) || 0) +
-                        (Number(item.quantityReserved) || 0)}
+                      {Number(item.quantityAvailable || 0) +
+                        Number(item.quantityReserved || 0)}
                     </div>
                   </td>
                   <td className="px-6 py-4 text-right">

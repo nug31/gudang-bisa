@@ -37,14 +37,14 @@ const handleResponse = async (response: Response) => {
 // Request API service
 export const requestApi = {
   // Get all requests
-  getAll: async (): Promise<ItemRequest[]> => {
+  getAll: async (timestamp?: number): Promise<ItemRequest[]> => {
     try {
       const response = await fetch(`${API_BASE_URL}/requests`);
       return handleResponse(response);
     } catch (error) {
       console.error("Error fetching requests:", error);
       // Fallback to direct database connection if API fails
-      return requestDbApi.getAll();
+      return requestDbApi.getAll(timestamp);
     }
   },
 
@@ -141,18 +141,32 @@ export const requestApi = {
 // Direct database connection API (fallback)
 export const requestDbApi = {
   // Get all requests
-  getAll: async (): Promise<ItemRequest[]> => {
+  getAll: async (timestamp?: number): Promise<ItemRequest[]> => {
     try {
+      console.log(
+        `Fetching all requests with timestamp: ${timestamp || "none"}`
+      );
+
       const response = await fetch("/db/requests", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
+          "Cache-Control": "no-cache, no-store, must-revalidate",
+          Pragma: "no-cache",
+          Expires: "0",
         },
         body: JSON.stringify({
           action: "getAll",
+          timestamp: timestamp || new Date().getTime(), // Add timestamp to prevent caching
         }),
       });
-      return handleResponse(response);
+
+      console.log(`Request response status: ${response.status}`);
+
+      const data = await handleResponse(response);
+      console.log(`Received ${data.length} requests from server`);
+
+      return data;
     } catch (error) {
       console.error("Error fetching requests from database:", error);
       throw error;
@@ -183,32 +197,48 @@ export const requestDbApi = {
   create: async (
     request: Omit<ItemRequest, "id" | "createdAt" | "updatedAt">
   ): Promise<ItemRequest> => {
-    const maxRetries = 2;
+    const maxRetries = 3; // Increased from 2 to 3
     let retryCount = 0;
     let lastError: any = null;
+    let lastResponse: Response | null = null;
+
+    // Create a complete request object that can be used as a fallback
+    const now = new Date().toISOString();
+    const newRequest = {
+      ...request,
+      id: uuidv4(),
+      createdAt: now,
+      updatedAt: now,
+    };
 
     while (retryCount <= maxRetries) {
       try {
-        const now = new Date().toISOString();
-        const newRequest = {
-          ...request,
-          id: uuidv4(),
-          createdAt: now,
-          updatedAt: now,
-        };
-
         console.log(`Attempt ${retryCount + 1} to create request:`, newRequest);
+
+        // Log the request body for debugging
+        const requestBody = {
+          action: "create",
+          request: newRequest,
+          timestamp: Date.now(), // Add timestamp to prevent caching
+        };
+        console.log("Request body:", JSON.stringify(requestBody));
 
         const response = await fetch("/db/requests", {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
+            "Cache-Control": "no-cache, no-store, must-revalidate",
+            Pragma: "no-cache",
+            Expires: "0",
           },
-          body: JSON.stringify({
-            action: "create",
-            request: newRequest,
-          }),
+          body: JSON.stringify(requestBody),
         });
+
+        lastResponse = response;
+        console.log(`Server response status: ${response.status}`);
+
+        // Log more details about the response
+        console.log("Response headers:", response.headers);
 
         // Check if response is empty
         const contentType = response.headers.get("content-type");
@@ -221,27 +251,62 @@ export const requestDbApi = {
             );
             return newRequest as ItemRequest;
           }
+
+          // Try to get more information about the error
+          let errorDetails = "";
+          try {
+            errorDetails = await response.text();
+          } catch (textError) {
+            console.error("Could not read error response text:", textError);
+          }
+
           throw new Error(
-            `Server returned non-JSON response: ${response.status} ${response.statusText}`
+            `Server returned non-JSON response: ${response.status} ${
+              response.statusText
+            }${errorDetails ? ` - ${errorDetails}` : ""}`
           );
         }
 
         if (!response.ok) {
-          const errorText = await response.text();
-          console.error("Server error response:", errorText);
+          let errorData: any = {};
+          try {
+            // Try to parse the error response as JSON
+            errorData = await response.json();
+          } catch (jsonError) {
+            // If it's not JSON, get the text
+            try {
+              const errorText = await response.text();
+              console.error("Server error response (text):", errorText);
+              throw new Error(
+                `Server error: ${response.status} ${response.statusText} - ${errorText}`
+              );
+            } catch (textError) {
+              console.error("Could not read error response:", textError);
+              throw new Error(
+                `Server error: ${response.status} ${response.statusText}`
+              );
+            }
+          }
+
+          console.error("Server error response (JSON):", errorData);
           throw new Error(
-            `Server error: ${response.status} ${response.statusText}`
+            `Server error: ${response.status} ${response.statusText} - ${
+              errorData.message || errorData.error || JSON.stringify(errorData)
+            }`
           );
         }
 
         try {
-          return await handleResponse(response);
+          const data = await handleResponse(response);
+          console.log("Request created successfully with data:", data);
+          return data;
         } catch (parseError) {
           console.error(
             "Failed to parse response, using request data as fallback"
           );
           // If we can't parse the response but the request was successful, return the request data
           if (response.ok) {
+            console.log("Using request data as fallback response");
             return newRequest as ItemRequest;
           }
           throw parseError;
@@ -256,9 +321,9 @@ export const requestDbApi = {
 
         if (retryCount <= maxRetries) {
           // Wait before retrying (exponential backoff)
-          await new Promise((resolve) =>
-            setTimeout(resolve, 1000 * retryCount)
-          );
+          const delay = 1000 * Math.pow(2, retryCount - 1); // 1s, 2s, 4s, 8s
+          console.log(`Waiting ${delay}ms before retry...`);
+          await new Promise((resolve) => setTimeout(resolve, delay));
           console.log(
             `Retrying request creation (attempt ${retryCount + 1})...`
           );
@@ -267,8 +332,28 @@ export const requestDbApi = {
     }
 
     console.error(`Failed to create request after ${maxRetries + 1} attempts`);
+
+    // If we have a response but couldn't process it, provide more detailed error
+    if (lastResponse) {
+      try {
+        const responseText = await lastResponse.text();
+        console.error("Last server response:", responseText);
+        throw new Error(
+          `Server returned status ${lastResponse.status} ${lastResponse.statusText}. Response: ${responseText}`
+        );
+      } catch (textError) {
+        console.error("Could not read last response:", textError);
+      }
+    }
+
+    // If all else fails, return a more detailed error
     throw (
-      lastError || new Error("Failed to create request after multiple attempts")
+      lastError ||
+      new Error(
+        `Failed to create request after ${
+          maxRetries + 1
+        } attempts. Check your network connection and try again.`
+      )
     );
   },
 
@@ -277,10 +362,27 @@ export const requestDbApi = {
     try {
       console.log("requestDbApi: Updating request:", request);
 
-      const updatedRequest = {
+      // Make sure user roles are preserved properly
+      let updatedRequest = {
         ...request,
         updatedAt: new Date().toISOString(),
       };
+      
+      // Add debugging for user roles
+      if (updatedRequest.approvedBy) {
+        console.log('Approving with user ID:', updatedRequest.approvedBy);
+        // Get user from localStorage as backup
+        try {
+          const storedUser = localStorage.getItem("user");
+          if (storedUser) {
+            const parsedUser = JSON.parse(storedUser);
+            console.log('User from localStorage:', parsedUser);
+            console.log('User role from localStorage:', parsedUser.role);
+          }
+        } catch (e) {
+          console.error('Error getting user from localStorage:', e);
+        }
+      }
 
       console.log(
         "requestDbApi: Prepared request with updated timestamp:",
@@ -296,6 +398,8 @@ export const requestDbApi = {
           action: "update",
           request: updatedRequest,
         }),
+        // Add credentials to ensure cookies are sent
+        credentials: "include"
       });
 
       console.log("requestDbApi: Update response status:", response.status);

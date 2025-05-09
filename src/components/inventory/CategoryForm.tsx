@@ -5,6 +5,7 @@ import { Input } from "../ui/Input";
 import { Textarea } from "../ui/Textarea";
 import { Button } from "../ui/Button";
 import { useAuth } from "../../context/AuthContext";
+import { useCategories } from "../../context/CategoryContext";
 
 interface CategoryFormProps {
   initialData?: Category;
@@ -19,6 +20,7 @@ export const CategoryForm: React.FC<CategoryFormProps> = ({
 }) => {
   const isEdit = !!initialData;
   const { user } = useAuth();
+  const { createCategory, updateCategory } = useCategories();
 
   const [formData, setFormData] = useState({
     name: "",
@@ -85,61 +87,27 @@ export const CategoryForm: React.FC<CategoryFormProps> = ({
     setIsSubmitting(true);
 
     try {
-      const action = isEdit ? "update" : "create";
-      const payload = isEdit ? { ...formData, id: initialData.id } : formData;
+      let result;
 
-      console.log("Submitting category form with payload:", {
-        action,
-        ...payload,
-      });
-
-      const response = await fetch("/db/categories", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          action,
-          ...payload,
-        }),
-      });
-
-      // Log the raw response for debugging
-      console.log("Response status:", response.status);
-
-      // Clone the response to read it twice
-      const responseClone = response.clone();
-
-      try {
-        // Try to parse as text first to see what's coming back
-        const rawText = await responseClone.text();
-        console.log("Raw response text:", rawText);
-
-        // If not empty, try to parse as JSON
-        let result;
-        if (rawText.trim()) {
-          result = JSON.parse(rawText);
-        }
-
-        if (!response.ok) {
-          throw new Error(
-            (result && result.message) ||
-              `Failed to ${isEdit ? "update" : "create"} category`
-          );
-        }
-
-        if (result) {
-          console.log("Parsed result:", result);
-          onSuccess(result);
-        } else {
-          throw new Error("Empty response received from server");
-        }
-      } catch (parseError) {
-        console.error("Error parsing response:", parseError);
-        throw new Error(
-          `Failed to parse server response: ${parseError.message}`
-        );
+      if (isEdit && initialData) {
+        // Update existing category
+        result = await updateCategory({
+          id: initialData.id,
+          name: formData.name,
+          description: formData.description,
+        });
+        console.log("Category updated:", result);
+      } else {
+        // Create new category
+        result = await createCategory({
+          name: formData.name,
+          description: formData.description,
+        });
+        console.log("Category created:", result);
       }
+
+      // Call the success callback with the result
+      onSuccess(result);
     } catch (error) {
       console.error(
         `Error ${isEdit ? "updating" : "creating"} category:`,

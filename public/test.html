@@ -1,0 +1,352 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Gudang Mitra Test Page</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      line-height: 1.6;
+      margin: 0;
+      padding: 20px;
+      color: #333;
+    }
+    h1 {
+      color: #2563eb;
+      border-bottom: 2px solid #e5e7eb;
+      padding-bottom: 10px;
+    }
+    h2 {
+      color: #1e40af;
+      margin-top: 30px;
+    }
+    .card {
+      background-color: #fff;
+      border-radius: 8px;
+      box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+      padding: 20px;
+      margin-bottom: 20px;
+    }
+    .button {
+      background-color: #2563eb;
+      color: white;
+      border: none;
+      padding: 10px 15px;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 14px;
+      margin-right: 10px;
+      margin-bottom: 10px;
+    }
+    .button:hover {
+      background-color: #1e40af;
+    }
+    .success {
+      color: #15803d;
+      background-color: #dcfce7;
+      padding: 10px;
+      border-radius: 4px;
+      margin-top: 10px;
+    }
+    .error {
+      color: #b91c1c;
+      background-color: #fee2e2;
+      padding: 10px;
+      border-radius: 4px;
+      margin-top: 10px;
+    }
+    pre {
+      background-color: #f1f5f9;
+      padding: 15px;
+      border-radius: 4px;
+      overflow-x: auto;
+    }
+    .hidden {
+      display: none;
+    }
+    #results {
+      margin-top: 20px;
+    }
+  </style>
+</head>
+<body>
+  <h1>Gudang Mitra Test Page</h1>
+  
+  <div class="card">
+    <h2>Database Connection Test</h2>
+    <p>Test the connection to the Neon PostgreSQL database.</p>
+    <button id="testDbBtn" class="button">Test Database Connection</button>
+    <div id="dbResults" class="hidden"></div>
+  </div>
+  
+  <div class="card">
+    <h2>User Authentication Test</h2>
+    <p>Test user login functionality.</p>
+    <div>
+      <label for="email">Email:</label>
+      <input type="email" id="email" value="manager@gudangmitra.com">
+    </div>
+    <div style="margin-top: 10px;">
+      <label for="password">Password:</label>
+      <input type="password" id="password" value="manager123">
+    </div>
+    <button id="loginBtn" class="button" style="margin-top: 10px;">Test Login</button>
+    <div id="loginResults" class="hidden"></div>
+  </div>
+  
+  <div class="card">
+    <h2>Inventory API Test</h2>
+    <p>Test the inventory API endpoints.</p>
+    <button id="testInventoryBtn" class="button">Test Inventory API</button>
+    <div id="inventoryResults" class="hidden"></div>
+  </div>
+  
+  <div class="card">
+    <h2>User Management API Test</h2>
+    <p>Test the user management API endpoints.</p>
+    <button id="testUsersBtn" class="button">Test Users API</button>
+    <div id="usersResults" class="hidden"></div>
+  </div>
+  
+  <div class="card">
+    <h2>Fix Database Connection</h2>
+    <p>If you're experiencing database connection issues, try to fix them.</p>
+    <button id="fixDbBtn" class="button">Fix Database Connection</button>
+    <div id="fixResults" class="hidden"></div>
+  </div>
+  
+  <script>
+    // Test Database Connection
+    document.getElementById('testDbBtn').addEventListener('click', async () => {
+      const resultsDiv = document.getElementById('dbResults');
+      resultsDiv.innerHTML = 'Testing database connection...';
+      resultsDiv.className = '';
+      
+      try {
+        const script = document.createElement('script');
+        script.src = '/client-db-test.js';
+        document.head.appendChild(script);
+        
+        // Wait for the script to load and execute
+        await new Promise(resolve => setTimeout(resolve, 2000));
+        
+        if (window.dbTestResult && await window.dbTestResult.then(r => r.success)) {
+          const result = await window.dbTestResult;
+          resultsDiv.innerHTML = `
+            <div class="success">Database connection successful!</div>
+            <pre>
+Users: ${result.users.length}
+Inventory Items: ${result.inventory.length}
+Categories: ${result.categories.length}
+            </pre>
+          `;
+        } else {
+          const result = await window.dbTestResult;
+          resultsDiv.innerHTML = `
+            <div class="error">Database connection failed!</div>
+            <pre>
+Error: ${result.error}
+            </pre>
+          `;
+        }
+      } catch (error) {
+        resultsDiv.innerHTML = `
+          <div class="error">Test failed!</div>
+          <pre>
+Error: ${error.message}
+          </pre>
+        `;
+      }
+      
+      resultsDiv.classList.remove('hidden');
+    });
+    
+    // Test Login
+    document.getElementById('loginBtn').addEventListener('click', async () => {
+      const resultsDiv = document.getElementById('loginResults');
+      const email = document.getElementById('email').value;
+      const password = document.getElementById('password').value;
+      
+      resultsDiv.innerHTML = 'Testing login...';
+      resultsDiv.className = '';
+      
+      try {
+        const response = await fetch('/db/auth', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            action: 'login',
+            email,
+            password,
+          }),
+        });
+        
+        if (response.ok) {
+          const user = await response.json();
+          resultsDiv.innerHTML = `
+            <div class="success">Login successful!</div>
+            <pre>
+User: ${user.name}
+Email: ${user.email}
+Role: ${user.role}
+            </pre>
+          `;
+        } else {
+          const error = await response.text();
+          resultsDiv.innerHTML = `
+            <div class="error">Login failed!</div>
+            <pre>
+Status: ${response.status} ${response.statusText}
+Error: ${error}
+            </pre>
+          `;
+        }
+      } catch (error) {
+        resultsDiv.innerHTML = `
+          <div class="error">Test failed!</div>
+          <pre>
+Error: ${error.message}
+          </pre>
+        `;
+      }
+      
+      resultsDiv.classList.remove('hidden');
+    });
+    
+    // Test Inventory API
+    document.getElementById('testInventoryBtn').addEventListener('click', async () => {
+      const resultsDiv = document.getElementById('inventoryResults');
+      
+      resultsDiv.innerHTML = 'Testing inventory API...';
+      resultsDiv.className = '';
+      
+      try {
+        const response = await fetch('/db/inventory', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            action: 'getAll',
+          }),
+        });
+        
+        if (response.ok) {
+          const items = await response.json();
+          resultsDiv.innerHTML = `
+            <div class="success">Inventory API test successful!</div>
+            <pre>
+Retrieved ${items.length} inventory items
+First 3 items:
+${JSON.stringify(items.slice(0, 3), null, 2)}
+            </pre>
+          `;
+        } else {
+          const error = await response.text();
+          resultsDiv.innerHTML = `
+            <div class="error">Inventory API test failed!</div>
+            <pre>
+Status: ${response.status} ${response.statusText}
+Error: ${error}
+            </pre>
+          `;
+        }
+      } catch (error) {
+        resultsDiv.innerHTML = `
+          <div class="error">Test failed!</div>
+          <pre>
+Error: ${error.message}
+          </pre>
+        `;
+      }
+      
+      resultsDiv.classList.remove('hidden');
+    });
+    
+    // Test Users API
+    document.getElementById('testUsersBtn').addEventListener('click', async () => {
+      const resultsDiv = document.getElementById('usersResults');
+      
+      resultsDiv.innerHTML = 'Testing users API...';
+      resultsDiv.className = '';
+      
+      try {
+        const response = await fetch('/db/users', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            action: 'getAll',
+          }),
+        });
+        
+        if (response.ok) {
+          const users = await response.json();
+          resultsDiv.innerHTML = `
+            <div class="success">Users API test successful!</div>
+            <pre>
+Retrieved ${users.length} users
+First 3 users:
+${JSON.stringify(users.slice(0, 3), null, 2)}
+            </pre>
+          `;
+        } else {
+          const error = await response.text();
+          resultsDiv.innerHTML = `
+            <div class="error">Users API test failed!</div>
+            <pre>
+Status: ${response.status} ${response.statusText}
+Error: ${error}
+            </pre>
+          `;
+        }
+      } catch (error) {
+        resultsDiv.innerHTML = `
+          <div class="error">Test failed!</div>
+          <pre>
+Error: ${error.message}
+          </pre>
+        `;
+      }
+      
+      resultsDiv.classList.remove('hidden');
+    });
+    
+    // Fix Database Connection
+    document.getElementById('fixDbBtn').addEventListener('click', async () => {
+      const resultsDiv = document.getElementById('fixResults');
+      
+      resultsDiv.innerHTML = 'Attempting to fix database connection...';
+      resultsDiv.className = '';
+      
+      try {
+        // Load the client-db-test.js script
+        const script = document.createElement('script');
+        script.src = '/client-db-test.js';
+        document.head.appendChild(script);
+        
+        // Wait for the script to load and execute
+        await new Promise(resolve => setTimeout(resolve, 2000));
+        
+        resultsDiv.innerHTML = `
+          <div class="success">Fix attempt completed!</div>
+          <p>Please check the console for details and refresh the page to see if the issue is resolved.</p>
+        `;
+      } catch (error) {
+        resultsDiv.innerHTML = `
+          <div class="error">Fix attempt failed!</div>
+          <pre>
+Error: ${error.message}
+          </pre>
+        `;
+      }
+      
+      resultsDiv.classList.remove('hidden');
+    });
+  </script>
+</body>
+</html>

@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import { Category } from "../../types";
-import { useCategories } from "../../context/CategoryContext";
+import { useCategories } from "../../hooks/useCategories";
 import { CategoryForm } from "./CategoryForm";
 import { CategoryList } from "./CategoryList";
 import { Modal } from "../ui/Modal";

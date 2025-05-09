@@ -5,11 +5,12 @@ import React, {
   useReducer,
   useEffect,
 } from "react";
-import { ItemRequest, Comment } from "../types";
+import { ItemRequest, Comment, User } from "../types";
 import { itemRequests as mockRequests } from "../data/mockData";
 import { useAuth } from "./AuthContext";
 import { formatISO } from "date-fns";
-import { requestDbApi } from "../services/api";
+import { v4 as uuidv4 } from "uuid";
+import { requestDbApi, userApi } from "../services/api";
 import {
   createNotification,
   createNotificationForRole,
@@ -20,12 +21,16 @@ type RequestAction =
   | { type: "CREATE_REQUEST"; payload: ItemRequest }
   | { type: "UPDATE_REQUEST"; payload: ItemRequest }
   | { type: "DELETE_REQUEST"; payload: string }
-  | { type: "ADD_COMMENT"; payload: { requestId: string; comment: Comment } };
+  | { type: "ADD_COMMENT"; payload: { requestId: string; comment: Comment } }
+  | { type: "SET_MESSAGE"; payload: { type: string; text: string } };
 
 type RequestContextType = {
   requests: ItemRequest[];
   userRequests: ItemRequest[];
   loading: boolean;
+  refreshRequests: () => Promise<void>;
+  lastRefreshed: Date;
+  message: { type: string; text: string } | null;
   createRequest: (
     request: Omit<ItemRequest, "id" | "createdAt" | "updatedAt">
   ) => Promise<ItemRequest | undefined>;
@@ -36,6 +41,7 @@ type RequestContextType = {
     content: string
   ) => Promise<Comment | undefined>;
   getRequestById: (id: string) => Promise<ItemRequest | undefined>;
+  clearMessage: () => void;
 };
 
 function requestReducer(
@@ -65,6 +71,9 @@ function requestReducer(
         }
         return request;
       });
+    case "SET_MESSAGE":
+      // This action doesn't modify the requests state, it's handled separately
+      return state;
     default:
       return state;
   }
@@ -74,25 +83,77 @@ const RequestContext = createContext<RequestContextType | undefined>(undefined);
 
 export function RequestProvider({ children }: { children: React.ReactNode }) {
   const { user } = useAuth();
-  const [requests, dispatch] = useReducer(requestReducer, []);
+  const [requests, originalDispatch] = useReducer(requestReducer, []);
   const [loading, setLoading] = useState(true);
+  const [lastRefreshed, setLastRefreshed] = useState<Date>(new Date());
+  const [message, setMessage] = useState<{ type: string; text: string } | null>(
+    null
+  );
+  const [pollingInterval, setPollingInterval] = useState<NodeJS.Timeout | null>(
+    null
+  );
 
+  // Create a custom dispatch function that also handles messages
+  const dispatch = (action: RequestAction) => {
+    // Handle SET_MESSAGE action by updating the message state
+    if (action.type === "SET_MESSAGE") {
+      setMessage(action.payload);
+    }
+
+    // Forward the action to the original dispatch
+    return originalDispatch(action);
+  };
+
+  // Function to refresh requests
+  const refreshRequests = async (): Promise<ItemRequest[]> => {
+    try {
+      console.log("Refreshing requests...");
+
+      // Add a timestamp to force a fresh request (avoid caching)
+      const timestamp = new Date().getTime();
+      console.log(`Adding timestamp to request: ${timestamp}`);
+
+      const data = await requestDbApi.getAll(timestamp);
+
+      console.log("Received data from server:", data);
+
+      // Update the state with the new data
+      dispatch({ type: "INITIALIZE", payload: data });
+
+      // Update the last refreshed timestamp
+      const now = new Date();
+      setLastRefreshed(now);
+
+      console.log(
+        `Refreshed ${data.length} requests at ${now.toLocaleTimeString()}`
+      );
+
+      return data;
+    } catch (error) {
+      console.error("Error refreshing requests:", error);
+      return [];
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Initial fetch
   useEffect(() => {
-    // Fetch data from the database
-    const fetchRequests = async () => {
-      try {
-        const data = await requestDbApi.getAll();
-        dispatch({ type: "INITIALIZE", payload: data });
-      } catch (error) {
-        console.error("Error fetching requests:", error);
-        // Fallback to mock data if database fetch fails
-        dispatch({ type: "INITIALIZE", payload: mockRequests });
-      } finally {
-        setLoading(false);
+    refreshRequests();
+
+    // Set up polling interval (every 10 seconds)
+    const interval = setInterval(() => {
+      refreshRequests();
+    }, 10000); // 10 seconds
+
+    setPollingInterval(interval);
+
+    // Clean up interval on unmount
+    return () => {
+      if (pollingInterval) {
+        clearInterval(pollingInterval);
       }
     };
-
-    fetchRequests();
   }, []);
 
   // Filter requests for the current user
@@ -114,11 +175,42 @@ export function RequestProvider({ children }: { children: React.ReactNode }) {
 
       console.log("Creating request with data:", requestWithUserId);
 
-      // Create the request in the database
-      const createdRequest = await requestDbApi.create(requestWithUserId);
+      // Create a fallback request object in case the server fails
+      const fallbackRequest: ItemRequest = {
+        id: uuidv4(),
+        ...requestWithUserId,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        status: requestWithUserId.status || "pending",
+      };
 
-      if (!createdRequest) {
-        throw new Error("Failed to create request - no response from server");
+      let createdRequest: ItemRequest | null = null;
+      let serverError: Error | null = null;
+
+      try {
+        // Try to create the request in the database
+        createdRequest = await requestDbApi.create(requestWithUserId);
+
+        if (!createdRequest) {
+          throw new Error("Failed to create request - no response from server");
+        }
+      } catch (error) {
+        console.error("Server error creating request:", error);
+        serverError = error instanceof Error ? error : new Error(String(error));
+
+        // If we're in development mode or the error is not critical, use the fallback
+        if (
+          process.env.NODE_ENV === "development" ||
+          window.confirm(
+            "There was an issue connecting to the server. Would you like to continue with a local version? (Your request will be saved locally but may not be visible to administrators until connectivity is restored.)"
+          )
+        ) {
+          console.log("Using fallback request object:", fallbackRequest);
+          createdRequest = fallbackRequest;
+        } else {
+          // User chose not to use fallback
+          throw serverError;
+        }
       }
 
       console.log("Request created successfully:", createdRequest);
@@ -128,30 +220,50 @@ export function RequestProvider({ children }: { children: React.ReactNode }) {
 
       console.log("Creating notifications for new request...");
 
-      // Create notification for the user who created the request
-      createNotification({
-        userId: user.id,
-        type: "request_submitted",
-        message: `Your request for "${createdRequest.title}" has been submitted`,
-        relatedItemId: createdRequest.id,
-      });
+      try {
+        // Create notification for the user who created the request
+        createNotification({
+          userId: user.id,
+          type: "request_submitted",
+          message: `Your request for "${createdRequest.title}" has been submitted`,
+          relatedItemId: createdRequest.id,
+        });
 
-      // Create notifications for admins and managers
-      createNotificationForRole({
-        role: "admin",
-        type: "request_submitted",
-        message: `New request: "${createdRequest.title}" from ${user.name} requires your review`,
-        relatedItemId: createdRequest.id,
-        excludeUserId: user.id, // Don't notify the user who created the request
-      });
+        // Create notifications for admins and managers
+        createNotificationForRole({
+          role: "admin",
+          type: "request_submitted",
+          message: `New request: "${createdRequest.title}" from ${user.name} requires your review`,
+          relatedItemId: createdRequest.id,
+          excludeUserId: user.id, // Don't notify the user who created the request
+        });
 
-      createNotificationForRole({
-        role: "manager",
-        type: "request_submitted",
-        message: `New request: "${createdRequest.title}" from ${user.name} requires your review`,
-        relatedItemId: createdRequest.id,
-        excludeUserId: user.id, // Don't notify the user who created the request
-      });
+        createNotificationForRole({
+          role: "manager",
+          type: "request_submitted",
+          message: `New request: "${createdRequest.title}" from ${user.name} requires your review`,
+          relatedItemId: createdRequest.id,
+          excludeUserId: user.id, // Don't notify the user who created the request
+        });
+      } catch (notificationError) {
+        // Don't let notification errors prevent the request from being created
+        console.error("Error creating notifications:", notificationError);
+      }
+
+      // If we used the fallback but there was a server error, inform the user
+      if (serverError && createdRequest === fallbackRequest) {
+        console.warn("Request was created locally but not saved to the server");
+        setTimeout(() => {
+          // Use a more user-friendly message without an alert
+          dispatch({
+            type: "SET_MESSAGE",
+            payload: {
+              type: "warning",
+              text: "Your request was saved locally but there was an issue connecting to the server. The request may not be visible to administrators until connectivity is restored.",
+            },
+          });
+        }, 100);
+      }
 
       return createdRequest;
     } catch (error) {
@@ -163,7 +275,15 @@ export function RequestProvider({ children }: { children: React.ReactNode }) {
           ? error.message
           : "Unknown error occurred while creating request";
 
-      alert(`Failed to create request: ${errorMessage}`);
+      // Use our message system instead of an alert
+      dispatch({
+        type: "SET_MESSAGE",
+        payload: {
+          type: "error",
+          text: `Failed to create request: ${errorMessage}`,
+        },
+      });
+
       throw error;
     }
   };
@@ -201,11 +321,14 @@ export function RequestProvider({ children }: { children: React.ReactNode }) {
 
         // Status changed to approved
         if (updatedRequest.status === "approved") {
-          // Find the request owner's name
-          const requestOwnerUser = users.find((u) => u.id === requestOwner);
-          const requestOwnerName = requestOwnerUser
-            ? requestOwnerUser.name
-            : "User";
+          // Get the request owner's user data
+          let requestOwnerUser = null;
+          try {
+            requestOwnerUser = await userApi.getById(requestOwner);
+          } catch (error) {
+            console.error("Error fetching request owner:", error);
+          }
+          const requestOwnerName = requestOwnerUser?.name || "User";
 
           // Notify the request owner
           createNotification({
@@ -239,11 +362,14 @@ export function RequestProvider({ children }: { children: React.ReactNode }) {
 
         // Status changed to rejected
         else if (updatedRequest.status === "rejected") {
-          // Find the request owner's name
-          const requestOwnerUser = users.find((u) => u.id === requestOwner);
-          const requestOwnerName = requestOwnerUser
-            ? requestOwnerUser.name
-            : "User";
+          // Get the request owner's user data
+          let requestOwnerUser = null;
+          try {
+            requestOwnerUser = await userApi.getById(requestOwner);
+          } catch (error) {
+            console.error("Error fetching request owner:", error);
+          }
+          const requestOwnerName = requestOwnerUser?.name || "User";
 
           // Notify the request owner
           createNotification({
@@ -277,11 +403,14 @@ export function RequestProvider({ children }: { children: React.ReactNode }) {
 
         // Status changed to fulfilled
         else if (updatedRequest.status === "fulfilled") {
-          // Find the request owner's name
-          const requestOwnerUser = users.find((u) => u.id === requestOwner);
-          const requestOwnerName = requestOwnerUser
-            ? requestOwnerUser.name
-            : "User";
+          // Get the request owner's user data
+          let requestOwnerUser = null;
+          try {
+            requestOwnerUser = await userApi.getById(requestOwner);
+          } catch (error) {
+            console.error("Error fetching request owner:", error);
+          }
+          const requestOwnerName = requestOwnerUser?.name || "User";
 
           // Notify the request owner
           createNotification({
@@ -352,11 +481,15 @@ export function RequestProvider({ children }: { children: React.ReactNode }) {
       const request = requests.find((r) => r.id === requestId);
 
       if (request) {
-        // Find the request owner's name
-        const requestOwnerUser = users.find((u) => u.id === request.userId);
-        const requestOwnerName = requestOwnerUser
-          ? requestOwnerUser.name
-          : "User";
+        // Get the request owner's user data
+        let requestOwnerUser: User | null = null;
+        try {
+          requestOwnerUser = await userApi.getById(request.userId);
+        } catch (error) {
+          console.error("Error fetching request owner:", error);
+        }
+
+        const requestOwnerName = requestOwnerUser?.name || "User";
 
         // If the comment is from the request owner, notify admins and managers
         if (user.id === request.userId) {
@@ -447,17 +580,25 @@ export function RequestProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
+  const clearMessage = () => {
+    setMessage(null);
+  };
+
   return (
     <RequestContext.Provider
       value={{
         requests,
         userRequests,
         loading,
+        refreshRequests,
+        lastRefreshed,
+        message,
         createRequest,
         updateRequest,
         deleteRequest,
         addComment,
         getRequestById,
+        clearMessage,
       }}
     >
       {children}

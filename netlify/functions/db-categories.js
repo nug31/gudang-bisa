@@ -1,4 +1,9 @@
-const { pool, query } = require("./neon-client");
+const { createClient } = require("@supabase/supabase-js");
+
+// Initialize Supabase client
+const supabaseUrl = process.env.SUPABASE_URL;
+const supabaseKey = process.env.SUPABASE_ANON_KEY;
+const supabase = createClient(supabaseUrl, supabaseKey);
 
 exports.handler = async (event, context) => {
   // Set CORS headers
@@ -44,48 +49,42 @@ exports.handler = async (event, context) => {
 
     switch (action) {
       case "getAll":
-        try {
-          // Get all categories with item counts in a single query
-          const result = await query(`
-            SELECT
-              c.id,
-              c.name,
-              c.description,
-              COUNT(i.id) as item_count
-            FROM
-              categories c
-            LEFT JOIN
-              inventory_items i ON c.id = i.category_id
-            GROUP BY
-              c.id, c.name, c.description
-            ORDER BY
-              c.name
-          `);
+        // Get all categories
+        const { data: categories, error: categoriesError } = await supabase
+          .from("categories")
+          .select("id, name, description")
+          .order("name");
 
-          // Transform the data to include itemCount
-          const categories = result.rows.map((category) => ({
-            id: category.id,
-            name: category.name,
-            description: category.description,
-            itemCount: parseInt(category.item_count) || 0,
-          }));
-
-          return {
-            statusCode: 200,
-            headers,
-            body: JSON.stringify(categories),
-          };
-        } catch (error) {
-          console.error("Error fetching categories:", error);
+        if (categoriesError) {
           return {
             statusCode: 500,
             headers,
             body: JSON.stringify({
               message: "Error fetching categories",
-              error: error.message,
+              error: categoriesError.message,
             }),
           };
         }
+
+        // Get item counts for each category
+        for (const category of categories) {
+          const { count, error: countError } = await supabase
+            .from("inventory_items")
+            .select("id", { count: "exact", head: true })
+            .eq("category_id", category.id);
+
+          if (!countError) {
+            category.itemCount = count;
+          } else {
+            category.itemCount = 0;
+          }
+        }
+
+        return {
+          statusCode: 200,
+          headers,
+          body: JSON.stringify(categories),
+        };
 
       case "getById":
         // Validate ID
@@ -97,61 +96,43 @@ exports.handler = async (event, context) => {
           };
         }
 
-        try {
-          const id = data.id;
+        const id = data.id;
 
-          // Get category by ID with item count in a single query
-          const result = await query(
-            `
-            SELECT
-              c.id,
-              c.name,
-              c.description,
-              COUNT(i.id) as item_count
-            FROM
-              categories c
-            LEFT JOIN
-              inventory_items i ON c.id = i.category_id
-            WHERE
-              c.id = $1
-            GROUP BY
-              c.id, c.name, c.description
-          `,
-            [id]
-          );
+        // Get category by ID
+        const { data: category, error: categoryError } = await supabase
+          .from("categories")
+          .select("id, name, description")
+          .eq("id", id)
+          .single();
 
-          if (result.rows.length === 0) {
-            return {
-              statusCode: 404,
-              headers,
-              body: JSON.stringify({ message: "Category not found" }),
-            };
-          }
-
-          // Transform the data to include itemCount
-          const category = {
-            id: result.rows[0].id,
-            name: result.rows[0].name,
-            description: result.rows[0].description,
-            itemCount: parseInt(result.rows[0].item_count) || 0,
-          };
-
+        if (categoryError) {
           return {
-            statusCode: 200,
-            headers,
-            body: JSON.stringify(category),
-          };
-        } catch (error) {
-          console.error("Error fetching category:", error);
-          return {
-            statusCode: 500,
+            statusCode: 404,
             headers,
             body: JSON.stringify({
-              message: "Error fetching category",
-              error: error.message,
+              message: "Category not found",
+              error: categoryError.message,
             }),
           };
         }
+
+        // Get item count for the category
+        const { count, error: countError } = await supabase
+          .from("inventory_items")
+          .select("id", { count: "exact", head: true })
+          .eq("category_id", id);
+
+        if (!countError) {
+          category.itemCount = count;
+        } else {
+          category.itemCount = 0;
+        }
+
+        return {
+          statusCode: 200,
+          headers,
+          body: JSON.stringify(category),
+        };
 
       case "create":
         // Validate required fields
@@ -163,40 +144,37 @@ exports.handler = async (event, context) => {
           };
         }
 
-        try {
-          // Insert the category
-          const result = await query(
-            `
-            INSERT INTO categories (
-              name,
-              description
-            ) VALUES ($1, $2)
-            RETURNING *
-          `,
-            [data.name, data.description || null]
-          );
+        // Insert the category
+        const { data: createdCategory, error: createError } = await supabase
+          .from("categories")
+          .insert([
+            {
+              name: data.name,
+              description: data.description || null,
+            },
+          ])
+          .select()
+          .single();
 
-          const createdCategory = result.rows[0];
-
-          // Add itemCount property
-          createdCategory.itemCount = 0;
-
-          return {
-            statusCode: 201,
-            headers,
-            body: JSON.stringify(createdCategory),
-          };
-        } catch (error) {
-          console.error("Error creating category:", error);
+        if (createError) {
           return {
             statusCode: 500,
             headers,
             body: JSON.stringify({
               message: "Error creating category",
-              error: error.message,
+              error: createError.message,
             }),
           };
         }
+
+        // Add itemCount property
+        createdCategory.itemCount = 0;
+
+        return {
+          statusCode: 201,
+          headers,
+          body: JSON.stringify(createdCategory),
+        };
 
       case "update":
         // Validate ID
@@ -208,81 +186,60 @@ exports.handler = async (event, context) => {
           };
         }
 
-        try {
-          const updateId = data.id;
+        const updateId = data.id;
 
-          // Build the update query dynamically
-          let updateQuery = "UPDATE categories SET ";
-          const updateValues = [];
-          const updateFields = [];
-          let paramIndex = 1;
+        // Build the update object
+        const updateData = {};
 
-          if (data.name !== undefined) {
-            updateFields.push(`name = $${paramIndex}`);
-            updateValues.push(data.name);
-            paramIndex++;
-          }
+        if (data.name !== undefined) updateData.name = data.name;
+        if (data.description !== undefined)
+          updateData.description = data.description;
 
-          if (data.description !== undefined) {
-            updateFields.push(`description = $${paramIndex}`);
-            updateValues.push(data.description);
-            paramIndex++;
-          }
-
-          // If no fields to update, return error
-          if (updateFields.length === 0) {
-            return {
-              statusCode: 400,
-              headers,
-              body: JSON.stringify({ message: "No fields to update" }),
-            };
-          }
-
-          updateQuery += updateFields.join(", ");
-          updateQuery += ` WHERE id = $${paramIndex} RETURNING *`;
-          updateValues.push(updateId);
-
-          // Execute the update query
-          const result = await query(updateQuery, updateValues);
-
-          if (result.rows.length === 0) {
-            return {
-              statusCode: 404,
-              headers,
-              body: JSON.stringify({ message: "Category not found" }),
-            };
-          }
-
-          const updatedCategory = result.rows[0];
-
-          // Get item count for the category
-          const countResult = await query(
-            `
-            SELECT COUNT(*) as count
-            FROM inventory_items
-            WHERE category_id = $1
-          `,
-            [updateId]
-          );
-
-          updatedCategory.itemCount = parseInt(countResult.rows[0].count) || 0;
-
+        // If no fields to update, return error
+        if (Object.keys(updateData).length === 0) {
           return {
-            statusCode: 200,
+            statusCode: 400,
             headers,
-            body: JSON.stringify(updatedCategory),
+            body: JSON.stringify({ message: "No fields to update" }),
           };
-        } catch (error) {
-          console.error("Error updating category:", error);
+        }
+
+        // Update the category
+        const { data: updatedCategory, error: updateError } = await supabase
+          .from("categories")
+          .update(updateData)
+          .eq("id", updateId)
+          .select()
+          .single();
+
+        if (updateError) {
           return {
             statusCode: 500,
             headers,
             body: JSON.stringify({
               message: "Error updating category",
-              error: error.message,
+              error: updateError.message,
             }),
           };
         }
+
+        // Get item count for the category
+        const { count: updatedCount, error: updatedCountError } = await supabase
+          .from("inventory_items")
+          .select("id", { count: "exact", head: true })
+          .eq("category_id", updateId);
+
+        if (!updatedCountError) {
+          updatedCategory.itemCount = updatedCount;
+        } else {
+          updatedCategory.itemCount = 0;
+        }
+
+        return {
+          statusCode: 200,
+          headers,
+          body: JSON.stringify(updatedCategory),
+        };
 
       case "delete":
         // Validate ID
@@ -294,85 +251,62 @@ exports.handler = async (event, context) => {
           };
         }
 
-        try {
-          const deleteId = data.id;
+        const deleteId = data.id;
 
-          // Check if the category has any inventory items
-          const itemCountResult = await query(
-            `
-            SELECT COUNT(*) as count
-            FROM inventory_items
-            WHERE category_id = $1
-          `,
-            [deleteId]
-          );
+        // Check if the category has any inventory items
+        const { count: itemCount, error: itemCountError } = await supabase
+          .from("inventory_items")
+          .select("id", { count: "exact", head: true })
+          .eq("category_id", deleteId);
 
-          const itemCount = parseInt(itemCountResult.rows[0].count) || 0;
-
-          if (itemCount > 0) {
-            return {
-              statusCode: 400,
-              headers,
-              body: JSON.stringify({
-                message: "Cannot delete category that has inventory items",
-              }),
-            };
-          }
-
-          // Check if the category has any requests
-          const requestCountResult = await query(
-            `
-            SELECT COUNT(*) as count
-            FROM item_requests
-            WHERE category_id = $1
-          `,
-            [deleteId]
-          );
-
-          const requestCount = parseInt(requestCountResult.rows[0].count) || 0;
-
-          if (requestCount > 0) {
-            return {
-              statusCode: 400,
-              headers,
-              body: JSON.stringify({
-                message: "Cannot delete category that has requests",
-              }),
-            };
-          }
-
-          // Delete the category
-          const result = await query(
-            `
-            DELETE FROM categories WHERE id = $1 RETURNING id
-          `,
-            [deleteId]
-          );
-
-          if (result.rows.length === 0) {
-            return {
-              statusCode: 404,
-              headers,
-              body: JSON.stringify({ message: "Category not found" }),
-            };
-          }
-
+        if (!itemCountError && itemCount > 0) {
           return {
-            statusCode: 200,
+            statusCode: 400,
             headers,
-            body: JSON.stringify({ message: "Category deleted successfully" }),
+            body: JSON.stringify({
+              message: "Cannot delete category that has inventory items",
+            }),
           };
-        } catch (error) {
-          console.error("Error deleting category:", error);
+        }
+
+        // Check if the category has any requests
+        const { count: requestCount, error: requestCountError } = await supabase
+          .from("item_requests")
+          .select("id", { count: "exact", head: true })
+          .eq("category_id", deleteId);
+
+        if (!requestCountError && requestCount > 0) {
+          return {
+            statusCode: 400,
+            headers,
+            body: JSON.stringify({
+              message: "Cannot delete category that has requests",
+            }),
+          };
+        }
+
+        // Delete the category
+        const { error: deleteError } = await supabase
+          .from("categories")
+          .delete()
+          .eq("id", deleteId);
+
+        if (deleteError) {
           return {
             statusCode: 500,
             headers,
             body: JSON.stringify({
               message: "Error deleting category",
-              error: error.message,
+              error: deleteError.message,
             }),
           };
         }
+
+        return {
+          statusCode: 200,
+          headers,
+          body: JSON.stringify({ message: "Category deleted successfully" }),
+        };
 
       default:
         return {

@@ -23,11 +23,20 @@ export const Header: React.FC = () => {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [userMenuOpen, setUserMenuOpen] = useState(false);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
+  const [userName, setUserName] = useState<string>("");
 
   const { user, logout } = useAuth();
   const { notifications, unreadCount, markAsRead, markAllAsRead } =
     useNotifications();
   const navigate = useNavigate();
+
+  // Update userName when user changes
+  useEffect(() => {
+    if (user) {
+      setUserName(user.name);
+      console.log("Header: User name updated to", user.name);
+    }
+  }, [user]);
 
   // Close mobile menu when window is resized to desktop size
   useEffect(() => {
@@ -305,14 +314,14 @@ export const Header: React.FC = () => {
                     <div className="relative">
                       <Avatar
                         src={user.avatarUrl}
-                        name={user.name}
+                        name={userName}
                         size="sm"
                         className="icon-3d"
                       />
                       <div className="absolute bottom-0 right-0 w-2 h-2 bg-success-400 rounded-full border border-white"></div>
                     </div>
                     <span className="ml-2 text-sm font-medium text-neutral-700 hidden sm:block">
-                      {user.name}
+                      {userName}
                     </span>
                     <ChevronDown
                       className="ml-1 h-4 w-4 text-neutral-500 hidden sm:block transition-transform duration-300"
@@ -331,12 +340,12 @@ export const Header: React.FC = () => {
                         <div className="flex items-center">
                           <Avatar
                             src={user.avatarUrl}
-                            name={user.name}
+                            name={userName}
                             size="md"
                           />
                           <div className="ml-3">
                             <p className="text-sm font-semibold text-neutral-900">
-                              {user.name}
+                              {userName}
                             </p>
                             <p className="text-xs text-neutral-500">
                               {user.email}
@@ -360,9 +369,6 @@ export const Header: React.FC = () => {
                           <span className="relative">
                             Profile
                             <span className="absolute -bottom-1 left-0 w-0 h-0.5 bg-primary-400 group-hover:w-full transition-all duration-300"></span>
-                          </span>
-                          <span className="ml-2 text-xs text-neutral-400">
-                            (View only)
                           </span>
                         </Link>
                         <button
@@ -618,12 +624,12 @@ export const Header: React.FC = () => {
                       <div className="flex items-center">
                         <Avatar
                           src={user.avatarUrl}
-                          name={user.name}
+                          name={userName}
                           size="md"
                         />
                         <div className="ml-3">
                           <p className="text-sm font-semibold text-neutral-900">
-                            {user.name}
+                            {userName}
                           </p>
                           <p className="text-xs text-neutral-500">
                             {user.email}
@@ -636,7 +642,7 @@ export const Header: React.FC = () => {
                           className="flex-1 px-3 py-2 text-sm font-medium text-center text-neutral-700 bg-neutral-100 rounded-md hover:bg-neutral-200"
                           onClick={() => setMobileMenuOpen(false)}
                         >
-                          Profile (View only)
+                          Profile
                         </Link>
                         <button
                           onClick={() => {

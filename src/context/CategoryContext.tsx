@@ -49,46 +49,125 @@ export const CategoryProvider: React.FC<CategoryProviderProps> = ({
     setError(null);
 
     try {
-      const response = await fetch("/.netlify/functions/db-categories", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          action: "getAll",
-        }),
-      });
+      console.log("Attempting to fetch categories from Netlify function");
 
-      // Check if the response is ok before trying to parse it
-      if (!response.ok) {
-        let errorMessage = "Failed to fetch categories";
-        try {
-          const errorData = await response.json();
-          errorMessage = errorData.message || errorMessage;
-        } catch (parseError) {
-          console.error("Error parsing error response:", parseError);
-        }
-        throw new Error(errorMessage);
-      }
-
-      // Try to parse the response, handle empty responses
-      let data = [];
+      // First try the Netlify function for Neon PostgreSQL
       try {
-        const text = await response.text();
-        data = text ? JSON.parse(text) : [];
-      } catch (parseError) {
-        console.error("Error parsing response:", parseError);
-        throw new Error("Invalid response format from server");
+        const response = await fetch("/.netlify/functions/neon-categories", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            action: "getAll",
+          }),
+        });
+
+        console.log("Neon categories response status:", response.status);
+
+        // Check if the response is ok before trying to parse it
+        if (response.ok) {
+          // Try to parse the response, handle empty responses
+          const text = await response.text();
+          const data = text ? JSON.parse(text) : [];
+          console.log("Successfully fetched categories from Neon:", data);
+          setCategories(Array.isArray(data) ? data : []);
+          setLoading(false);
+          return;
+        } else {
+          console.error(
+            "Neon categories response not OK:",
+            await response.text()
+          );
+        }
+      } catch (neonError) {
+        console.error("Error fetching from Neon categories:", neonError);
       }
 
-      setCategories(Array.isArray(data) ? data : []);
+      // If Netlify function fails, try the db endpoint
+      console.log("Trying fallback to /db/categories endpoint");
+      try {
+        const dbResponse = await fetch("/db/categories", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            action: "getAll",
+          }),
+        });
+
+        if (dbResponse.ok) {
+          const dbData = await dbResponse.json();
+          console.log("Successfully fetched categories from DB:", dbData);
+          setCategories(Array.isArray(dbData) ? dbData : []);
+          setLoading(false);
+          return;
+        }
+      } catch (dbError) {
+        console.error("Error fetching from /db/categories:", dbError);
+      }
+
+      // If db endpoint fails, try the API endpoint
+      console.log("Trying fallback to /api/categories endpoint");
+      try {
+        const apiResponse = await fetch("/api/categories", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            action: "getAll",
+          }),
+        });
+
+        if (apiResponse.ok) {
+          const apiData = await apiResponse.json();
+          console.log("Successfully fetched categories from API:", apiData);
+          setCategories(Array.isArray(apiData) ? apiData : []);
+          setLoading(false);
+          return;
+        }
+      } catch (apiError) {
+        console.error("Error fetching from /api/categories:", apiError);
+      }
+
+      // If both endpoints fail, use mock data
+      console.log("Both endpoints failed, using mock data");
+      const mockCategories = [
+        { id: "1", name: "Office", description: "Office supplies" },
+        { id: "2", name: "Cleaning", description: "Cleaning supplies" },
+        {
+          id: "3",
+          name: "Hardware",
+          description: "Hardware tools and supplies",
+        },
+        { id: "4", name: "Other", description: "Miscellaneous items" },
+      ];
+
+      console.log("Using mock categories:", mockCategories);
+      setCategories(mockCategories);
+      setError("Using mock data - database connection failed");
     } catch (err) {
+      console.error("Unexpected error in fetchCategories:", err);
       setError(
         err instanceof Error ? err.message : "An unknown error occurred"
       );
-      console.error("Error fetching categories:", err);
-      // Set empty array on error to prevent UI issues
-      setCategories([]);
+
+      // Use mock data as last resort
+      const mockCategories = [
+        { id: "1", name: "Office", description: "Office supplies" },
+        { id: "2", name: "Cleaning", description: "Cleaning supplies" },
+        {
+          id: "3",
+          name: "Hardware",
+          description: "Hardware tools and supplies",
+        },
+        { id: "4", name: "Other", description: "Miscellaneous items" },
+      ];
+
+      console.log("Using mock categories as last resort:", mockCategories);
+      setCategories(mockCategories);
     } finally {
       setLoading(false);
     }
@@ -112,7 +191,9 @@ export const CategoryProvider: React.FC<CategoryProviderProps> = ({
         );
       }
 
-      const response = await fetch("/.netlify/functions/db-categories", {
+      console.log("Creating category using Netlify function:", category);
+
+      const response = await fetch("/.netlify/functions/neon-categories", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -123,12 +204,16 @@ export const CategoryProvider: React.FC<CategoryProviderProps> = ({
         }),
       });
 
+      console.log("Create category response status:", response.status);
+
       if (!response.ok) {
         const errorData = await response.json();
+        console.error("Error creating category:", errorData);
         throw new Error(errorData.message || "Failed to create category");
       }
 
       const newCategory = await response.json();
+      console.log("Category created successfully:", newCategory);
 
       // Update local state
       setCategories((prev) => [...prev, newCategory]);
@@ -157,7 +242,9 @@ export const CategoryProvider: React.FC<CategoryProviderProps> = ({
         );
       }
 
-      const response = await fetch("/.netlify/functions/db-categories", {
+      console.log("Updating category using Netlify function:", category);
+
+      const response = await fetch("/.netlify/functions/neon-categories", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -168,12 +255,16 @@ export const CategoryProvider: React.FC<CategoryProviderProps> = ({
         }),
       });
 
+      console.log("Update category response status:", response.status);
+
       if (!response.ok) {
         const errorData = await response.json();
+        console.error("Error updating category:", errorData);
         throw new Error(errorData.message || "Failed to update category");
       }
 
       const updatedCategory = await response.json();
+      console.log("Category updated successfully:", updatedCategory);
 
       // Update local state
       setCategories((prev) =>
@@ -204,7 +295,9 @@ export const CategoryProvider: React.FC<CategoryProviderProps> = ({
         );
       }
 
-      const response = await fetch("/.netlify/functions/db-categories", {
+      console.log("Deleting category using Netlify function, ID:", id);
+
+      const response = await fetch("/.netlify/functions/neon-categories", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -215,10 +308,15 @@ export const CategoryProvider: React.FC<CategoryProviderProps> = ({
         }),
       });
 
+      console.log("Delete category response status:", response.status);
+
       if (!response.ok) {
         const errorData = await response.json();
+        console.error("Error deleting category:", errorData);
         throw new Error(errorData.message || "Failed to delete category");
       }
+
+      console.log("Category deleted successfully");
 
       // Update local state
       setCategories((prev) => prev.filter((c) => c.id !== id));

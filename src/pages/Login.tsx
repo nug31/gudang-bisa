@@ -34,22 +34,42 @@ export const Login: React.FC = () => {
   const handleSubmit = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     setFormError("");
+    console.log("Login form submitted");
 
     if (!email.trim()) {
       setFormError("Email is required");
+      console.log("Email is required");
       return;
     }
 
     if (!password.trim()) {
       setFormError("Password is required");
+      console.log("Password is required");
       return;
     }
 
+    console.log("Attempting to log in with:", email);
+
+    // First, test the API connection
+    console.log("Testing API connection with Netlify function");
     try {
+      const testResponse = await fetch("/.netlify/functions/hello-world");
+      console.log("Test API response:", await testResponse.json());
+    } catch (testErr) {
+      console.error("Test API failed:", testErr);
+    }
+
+    try {
+      console.log("Using AuthContext login function");
+
+      // Use the login function from AuthContext
       await login(email, password);
+
+      // If login is successful, navigate to the dashboard
       navigate("/");
     } catch (err) {
-      // Error is handled by the AuthContext
+      console.error("Error during login:", err);
+      setFormError(err instanceof Error ? err.message : "Login failed");
     }
   };
 
@@ -142,7 +162,7 @@ export const Login: React.FC = () => {
             </div>
           </div>
 
-          {/* Demo Accounts section hidden */}
+          {/* Demo Accounts section - hidden as requested */}
         </div>
       </div>
     </div>

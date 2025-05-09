@@ -1,29 +1,42 @@
-import { createClient } from "@supabase/supabase-js";
-import dotenv from "dotenv";
+// Create a mock Supabase client that doesn't actually connect to Supabase
+// This is used when we're using Neon database instead of Supabase
 
-// Load environment variables
-dotenv.config();
+// Create a mock function that returns a promise with empty data
+const mockQueryResponse = () => Promise.resolve({ data: [], error: null });
 
-// Initialize Supabase client
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+// Create a mock Supabase client
+const mockSupabase = {
+  from: () => ({
+    select: () => ({
+      eq: () => mockQueryResponse(),
+      neq: () => mockQueryResponse(),
+      gt: () => mockQueryResponse(),
+      lt: () => mockQueryResponse(),
+      gte: () => mockQueryResponse(),
+      lte: () => mockQueryResponse(),
+      in: () => mockQueryResponse(),
+      is: () => mockQueryResponse(),
+      single: () => mockQueryResponse(),
+      order: () => mockQueryResponse(),
+      limit: () => mockQueryResponse(),
+    }),
+    insert: () => mockQueryResponse(),
+    update: () => mockQueryResponse(),
+    delete: () => mockQueryResponse(),
+  }),
+  auth: {
+    signIn: () => Promise.resolve({ user: null, session: null, error: null }),
+    signUp: () => Promise.resolve({ user: null, session: null, error: null }),
+    signOut: () => Promise.resolve({ error: null }),
+  },
+  storage: {
+    from: () => ({
+      upload: () => Promise.resolve({ data: null, error: null }),
+      getPublicUrl: () => ({ data: { publicUrl: "" } }),
+    }),
+  },
+  rpc: () => mockQueryResponse(),
+};
 
-if (!supabaseUrl || !supabaseKey) {
-  console.error(
-    "Missing Supabase environment variables. Please set NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY in your .env file"
-  );
-  console.error("Current environment variables:", {
-    NEXT_PUBLIC_SUPABASE_URL: process.env.NEXT_PUBLIC_SUPABASE_URL,
-    NEXT_PUBLIC_SUPABASE_ANON_KEY: process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
-      ? "[HIDDEN]"
-      : undefined,
-  });
-}
-
-const supabase = createClient(
-  supabaseUrl || "https://jwrhtzjxdcahpceqkvbd.supabase.co",
-  supabaseKey ||
-    "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imh2cmh0emp4ZGNhaHBjZXFrdmJkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDY0NTQ3NzcsImV4cCI6MjA2MjAzMDc3N30.3ihqV2D7BlJhBtL5BPwgf_8CzAN19w604mBwRGPihsQ"
-);
-
-export default supabase;
+// Export the mock client
+export default mockSupabase;

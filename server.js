@@ -1,5 +1,6 @@
 import express from "express";
 import mysql from "mysql2/promise";
+import pg from "pg";
 import { config } from "dotenv";
 import { v4 as uuidv4 } from "uuid";
 import cors from "cors";
@@ -10,8 +11,35 @@ import mockPool from "./src/db/mock-db.js";
 // Load environment variables
 config();
 
+// Setup PostgreSQL connection for Neon (used for all database operations)
+const pgPool = new pg.Pool({
+  connectionString: process.env.NEON_CONNECTION_STRING,
+  ssl: {
+    rejectUnauthorized: false,
+  },
+  // Add connection pool settings for better reliability
+  max: 20,
+  idleTimeoutMillis: 30000,
+  connectionTimeoutMillis: 10000,
+});
+
+// Initialize pgcrypto extension for password hashing
+pgPool.query("CREATE EXTENSION IF NOT EXISTS pgcrypto").catch((err) => {
+  console.error("Error creating pgcrypto extension:", err);
+});
+
+// Test Neon connection on startup
+pgPool
+  .query("SELECT NOW()")
+  .then((result) => {
+    console.log("Neon PostgreSQL connection successful:", result.rows[0]);
+  })
+  .catch((err) => {
+    console.error("Error connecting to Neon PostgreSQL:", err);
+  });
+
 const app = express();
-const PORT = process.env.PORT || 3001;
+const PORT = process.env.PORT || 3002;
 
 // Middleware
 app.use(
@@ -28,11 +56,25 @@ app.use(
 
 // Add CORS headers to all responses
 app.use((req, res, next) => {
+  console.log(`Incoming request: ${req.method} ${req.url}`);
+
+  // Set CORS headers
   res.header("Access-Control-Allow-Origin", "*");
   res.header(
     "Access-Control-Allow-Headers",
     "Origin, X-Requested-With, Content-Type, Accept"
   );
+
+  // Handle preflight requests
+  if (req.method === "OPTIONS") {
+    console.log("Handling OPTIONS preflight request");
+    res.header(
+      "Access-Control-Allow-Methods",
+      "GET, POST, PUT, DELETE, OPTIONS"
+    );
+    return res.status(200).send();
+  }
+
   next();
 });
 
@@ -42,43 +84,53 @@ app.use(bodyParser.json());
 const useMockDb = process.env.USE_MOCK_DB === "true";
 console.log(`Database mode: ${useMockDb ? "MOCK DATABASE" : "REAL DATABASE"}`);
 
-// Create database connection pool
-const pool = useMockDb
-  ? mockPool
-  : mysql.createPool({
-      host: process.env.DB_HOST,
-      user: process.env.DB_USER,
-      password: process.env.DB_PASSWORD,
-      database: process.env.DB_NAME,
-      waitForConnections: true,
-      connectionLimit: 10,
-      queueLimit: 0,
-    });
+// Create database connection pool - use pgPool for Neon PostgreSQL
+const pool = useMockDb ? mockPool : pgPool;
 
 // Test database connection
 app.get("/api/test-connection", async (req, res) => {
   try {
-    console.log("Testing database connection with settings:", {
-      host: process.env.DB_HOST,
-      user: process.env.DB_USER,
-      database: process.env.DB_NAME,
-      port: process.env.DB_PORT,
-      useMockDb: useMockDb,
-    });
-
-    const connection = await pool.getConnection();
-    console.log("Database connected successfully");
+    console.log("Testing Neon PostgreSQL database connection");
 
     // Test a simple query
     try {
-      const [result] = await connection.query("SELECT 1 as test");
-      console.log("Test query result:", result);
+      const result = await pool.query("SELECT NOW() as current_time");
+      console.log("Test query result:", result.rows[0]);
+
+      // Get table counts
+      const tablesResult = await pool.query(`
+        SELECT table_name
+        FROM information_schema.tables
+        WHERE table_schema = 'public'
+        ORDER BY table_name
+      `);
+
+      const tables = tablesResult.rows.map((row) => row.table_name);
+      console.log("Tables found:", tables);
+
+      // Get inventory items count
+      let inventoryCount = 0;
+      if (tables.includes("inventory_items")) {
+        const inventoryResult = await pool.query(
+          "SELECT COUNT(*) FROM inventory_items"
+        );
+        inventoryCount = parseInt(inventoryResult.rows[0].count, 10);
+        console.log(`Found ${inventoryCount} inventory items`);
+      }
+
+      res.json({
+        success: true,
+        message: "Database connected successfully",
+        tables,
+        counts: {
+          tables: tables.length,
+          inventoryItems: inventoryCount,
+        },
+      });
     } catch (queryError) {
       console.error("Error executing test query:", queryError);
+      throw queryError;
     }
-
-    connection.release();
-    res.json({ success: true, message: "Database connected successfully" });
   } catch (error) {
     console.error("Error connecting to database:", error);
     res.status(500).json({
@@ -103,16 +155,11 @@ app.post("/api/register", async (req, res) => {
   }
 
   try {
-    const connection = await pool.getConnection();
-
     // Check if email already exists
-    const [existingUsers] = await connection.query(
-      "SELECT id FROM users WHERE email = ?",
-      [email]
-    );
+    const emailCheckQuery = "SELECT id FROM users WHERE email = $1";
+    const emailCheckResult = await pool.query(emailCheckQuery, [email]);
 
-    if (existingUsers.length > 0) {
-      connection.release();
+    if (emailCheckResult.rows.length > 0) {
       return res.status(400).json({ message: "Email already exists" });
     }
 
@@ -124,8 +171,8 @@ app.post("/api/register", async (req, res) => {
     const userId = uuidv4();
 
     // Insert the new user
-    await connection.query(
-      `INSERT INTO users (
+    const insertQuery = `
+      INSERT INTO users (
         id,
         name,
         email,
@@ -133,29 +180,23 @@ app.post("/api/register", async (req, res) => {
         role,
         department,
         created_at
-      ) VALUES (?, ?, ?, ?, ?, ?, NOW())`,
-      [userId, name, email, hashedPassword, role, department || null]
-    );
+      ) VALUES ($1, $2, $3, $4, $5, $6, NOW())
+      RETURNING id, name, email, role, department, avatar_url as "avatarUrl", created_at as "createdAt"
+    `;
 
-    // Get the newly created user (without password)
-    const [newUser] = await connection.query(
-      `SELECT
-        id,
-        name,
-        email,
-        role,
-        department,
-        avatar_url as avatarUrl,
-        created_at as createdAt
-      FROM users
-      WHERE id = ?`,
-      [userId]
-    );
+    const insertResult = await pool.query(insertQuery, [
+      userId,
+      name,
+      email,
+      hashedPassword,
+      role,
+      department || null,
+    ]);
 
-    connection.release();
+    console.log(`Created new user: ${name} with ID ${userId}`);
 
     res.status(201).json({
-      user: newUser[0],
+      user: insertResult.rows[0],
       message: "Registration successful",
     });
   } catch (error) {
@@ -178,33 +219,30 @@ app.post("/api/login", async (req, res) => {
   }
 
   try {
-    const connection = await pool.getConnection();
-
     // Find user by email
     console.log(`Searching for user with email: ${email}`);
-    const [users] = await connection.query(
-      `SELECT
+    const userQuery = `
+      SELECT
         id,
         name,
         email,
         password,
         role,
         department,
-        avatar_url as avatarUrl,
-        created_at as createdAt
+        avatar_url as "avatarUrl",
+        created_at as "createdAt"
       FROM users
-      WHERE email = ?`,
-      [email]
-    );
+      WHERE email = $1
+    `;
 
-    connection.release();
+    const userResult = await pool.query(userQuery, [email]);
 
-    if (users.length === 0) {
+    if (userResult.rows.length === 0) {
       console.log(`No user found with email: ${email}`);
       return res.status(401).json({ message: "Invalid email or password" });
     }
 
-    const user = users[0];
+    const user = userResult.rows[0];
     const storedPassword = user.password;
     console.log(`User found: ${user.name} (${user.email}), Role: ${user.role}`);
     console.log(
@@ -254,201 +292,252 @@ app.post("/db/requests", async (req, res) => {
     JSON.stringify(req.body, null, 2)
   );
 
+  // Debug role information for troubleshooting
+  if (req.body.request && req.body.request.approvedBy) {
+    console.log("User ID for role check:", req.body.request.approvedBy);
+
+    try {
+      // Check user role (make it case-insensitive)
+      const roleCheckResponse = await pool.query(
+        "SELECT role FROM users WHERE id = $1",
+        [req.body.request.approvedBy]
+      );
+
+      if (roleCheckResponse.rows.length > 0) {
+        const userRole = roleCheckResponse.rows[0].role.toLowerCase();
+        console.log("User role from database:", roleCheckResponse.rows[0].role);
+        console.log("Normalized user role:", userRole);
+        console.log(
+          "Has admin/manager permission:",
+          userRole === "admin" || userRole === "manager"
+        );
+      } else {
+        console.log("User not found in database");
+      }
+    } catch (roleCheckError) {
+      console.error("Error checking user role:", roleCheckError);
+    }
+  }
+
   try {
-    console.log("Getting database connection");
-    const connection = await pool.getConnection();
-    console.log("Database connection obtained");
+    // For PostgreSQL, we don't need to get a connection from the pool for each query
+    // The pool will manage connections automatically
 
     switch (action) {
       case "getAll":
-        // Get all requests
-        const [requests] = await connection.query(`
-          SELECT
-            ir.id,
-            ir.title,
-            ir.description,
-            c.id as category,
-            ir.priority,
-            ir.status,
-            ir.user_id as userId,
-            ir.created_at as createdAt,
-            ir.updated_at as updatedAt,
-            ir.approved_at as approvedAt,
-            ir.approved_by as approvedBy,
-            ir.rejected_at as rejectedAt,
-            ir.rejected_by as rejectedBy,
-            ir.rejection_reason as rejectionReason,
-            ir.fulfillment_date as fulfillmentDate,
-            ir.quantity
-          FROM item_requests ir
-          JOIN categories c ON ir.category_id = c.id
-        `);
-
-        // Get comments for each request
-        for (const request of requests) {
-          const [comments] = await connection.query(
-            `
+        try {
+          // Get all requests
+          const requestsQuery = `
             SELECT
-              id,
-              request_id as requestId,
-              user_id as userId,
-              content,
-              created_at as createdAt
-            FROM comments
-            WHERE request_id = ?
-          `,
-            [request.id]
-          );
+              ir.id,
+              ir.title,
+              ir.description,
+              c.id as category,
+              ir.priority,
+              ir.status,
+              ir.user_id as "userId",
+              ir.created_at as "createdAt",
+              ir.updated_at as "updatedAt",
+              ir.approved_at as "approvedAt",
+              ir.approved_by as "approvedBy",
+              ir.rejected_at as "rejectedAt",
+              ir.rejected_by as "rejectedBy",
+              ir.rejection_reason as "rejectionReason",
+              ir.fulfillment_date as "fulfillmentDate",
+              ir.quantity
+            FROM item_requests ir
+            JOIN categories c ON ir.category_id = c.id
+          `;
 
-          request.comments = comments;
+          console.log("Executing requests query");
+          const requestsResult = await pool.query(requestsQuery);
+
+          console.log(`Retrieved ${requestsResult.rows.length} requests`);
+
+          // Get comments for each request
+          for (const request of requestsResult.rows) {
+            const commentsQuery = `
+              SELECT
+                id,
+                request_id as "requestId",
+                user_id as "userId",
+                content,
+                created_at as "createdAt"
+              FROM comments
+              WHERE request_id = $1
+            `;
+
+            const commentsResult = await pool.query(commentsQuery, [
+              request.id,
+            ]);
+            request.comments = commentsResult.rows;
+          }
+
+          res.json(requestsResult.rows);
+        } catch (error) {
+          console.error("Error fetching requests:", error);
+          // Return empty array to prevent frontend errors
+          res.json([]);
         }
-
-        connection.release();
-        res.json(requests);
         break;
 
       case "getById":
-        // Get request by ID
-        const [requestResults] = await connection.query(
-          `
-          SELECT
-            ir.id,
-            ir.title,
-            ir.description,
-            c.id as category,
-            ir.priority,
-            ir.status,
-            ir.user_id as userId,
-            ir.created_at as createdAt,
-            ir.updated_at as updatedAt,
-            ir.approved_at as approvedAt,
-            ir.approved_by as approvedBy,
-            ir.rejected_at as rejectedAt,
-            ir.rejected_by as rejectedBy,
-            ir.rejection_reason as rejectionReason,
-            ir.fulfillment_date as fulfillmentDate,
-            ir.quantity
-          FROM item_requests ir
-          JOIN categories c ON ir.category_id = c.id
-          WHERE ir.id = ?
-        `,
-          [id]
-        );
+        try {
+          // Get request by ID
+          const requestQuery = `
+            SELECT
+              ir.id,
+              ir.title,
+              ir.description,
+              c.id as category,
+              ir.priority,
+              ir.status,
+              ir.user_id as "userId",
+              ir.created_at as "createdAt",
+              ir.updated_at as "updatedAt",
+              ir.approved_at as "approvedAt",
+              ir.approved_by as "approvedBy",
+              ir.rejected_at as "rejectedAt",
+              ir.rejected_by as "rejectedBy",
+              ir.rejection_reason as "rejectionReason",
+              ir.fulfillment_date as "fulfillmentDate",
+              ir.quantity
+            FROM item_requests ir
+            JOIN categories c ON ir.category_id = c.id
+            WHERE ir.id = $1
+          `;
 
-        if (requestResults.length === 0) {
-          connection.release();
-          return res.status(404).json({ message: "Request not found" });
+          console.log("Executing getById query for request:", id);
+          const requestResult = await pool.query(requestQuery, [id]);
+
+          if (requestResult.rows.length === 0) {
+            return res.status(404).json({ message: "Request not found" });
+          }
+
+          const request = requestResult.rows[0];
+
+          // Get comments for the request
+          const commentsQuery = `
+            SELECT
+              id,
+              request_id as "requestId",
+              user_id as "userId",
+              content,
+              created_at as "createdAt"
+            FROM comments
+            WHERE request_id = $1
+          `;
+
+          const commentsResult = await pool.query(commentsQuery, [id]);
+          request.comments = commentsResult.rows;
+
+          console.log("Retrieved request:", request.title);
+          res.json(request);
+        } catch (error) {
+          console.error("Error fetching request by ID:", error);
+          res
+            .status(500)
+            .json({ message: "Error fetching request", error: error.message });
         }
-
-        const requestResult = requestResults[0];
-
-        // Get comments for the request
-        const [commentResults] = await connection.query(
-          `
-          SELECT
-            id,
-            request_id as requestId,
-            user_id as userId,
-            content,
-            created_at as createdAt
-          FROM comments
-          WHERE request_id = ?
-        `,
-          [id]
-        );
-
-        requestResult.comments = commentResults;
-
-        connection.release();
-        res.json(requestResult);
         break;
 
       case "create":
-        // Create a new request
-        console.log("Handling create request action");
-        const {
-          title,
-          description,
-          category,
-          priority,
-          status,
-          userId,
-          quantity,
-          fulfillmentDate,
-          inventoryItemId,
-        } = request;
-
-        // Log the request data for debugging
-        console.log("Creating request with data:", {
-          id: request.id,
-          title,
-          description,
-          category_id: category,
-          priority,
-          status,
-          user_id: userId,
-          quantity,
-          fulfillment_date: fulfillmentDate,
-          inventory_item_id: inventoryItemId,
-        });
-
-        // If inventory item is specified, update the stock
-        if (inventoryItemId) {
-          // Check if there's enough available quantity
-          const [inventoryItem] = await connection.query(
-            `SELECT quantity_available, quantity_reserved FROM inventory_items WHERE id = ?`,
-            [inventoryItemId]
-          );
-
-          if (inventoryItem.length === 0) {
-            connection.release();
-            res.status(404).json({ message: "Inventory item not found" });
-            return;
-          }
-
-          const availableQuantity = inventoryItem[0].quantity_available;
-
-          if (availableQuantity < quantity) {
-            connection.release();
-            res.status(400).json({
-              message: "Not enough quantity available",
-              availableQuantity,
-              requestedQuantity: quantity,
-            });
-            return;
-          }
-
-          // Update the inventory item's stock
-          await connection.query(
-            `UPDATE inventory_items
-             SET quantity_available = quantity_available - ?,
-                 quantity_reserved = quantity_reserved + ?
-             WHERE id = ?`,
-            [quantity, quantity, inventoryItemId]
-          );
-
-          console.log(
-            `Updated inventory item ${inventoryItemId}: Reserved ${quantity} items`
-          );
-        }
-
-        // Insert the request
-        const [createResult] = await connection.query(
-          `
-          INSERT INTO item_requests (
-            id,
+        try {
+          // Create a new request
+          console.log("Handling create request action");
+          const {
             title,
             description,
-            category_id,
+            category,
             priority,
             status,
-            user_id,
+            userId,
             quantity,
-            fulfillment_date,
-            inventory_item_id
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        `,
-          [
+            fulfillmentDate,
+            inventoryItemId,
+          } = request;
+
+          // Log the request data for debugging
+          console.log("Creating request with data:", {
+            id: request.id,
+            title,
+            description,
+            category_id: category,
+            priority,
+            status,
+            user_id: userId,
+            quantity,
+            fulfillment_date: fulfillmentDate,
+            inventory_item_id: inventoryItemId,
+          });
+
+          // If inventory item is specified, update the stock
+          if (inventoryItemId) {
+            // Check if there's enough available quantity
+            const inventoryQuery = `
+              SELECT quantity_available, quantity_reserved
+              FROM inventory_items
+              WHERE id = $1
+            `;
+
+            const inventoryResult = await pool.query(inventoryQuery, [
+              inventoryItemId,
+            ]);
+
+            if (inventoryResult.rows.length === 0) {
+              return res
+                .status(404)
+                .json({ message: "Inventory item not found" });
+            }
+
+            const availableQuantity =
+              inventoryResult.rows[0].quantity_available;
+
+            if (availableQuantity < quantity) {
+              return res.status(400).json({
+                message: "Not enough quantity available",
+                availableQuantity,
+                requestedQuantity: quantity,
+              });
+            }
+
+            // Update the inventory item's stock
+            const updateInventoryQuery = `
+              UPDATE inventory_items
+              SET quantity_available = quantity_available - $1,
+                  quantity_reserved = quantity_reserved + $2
+              WHERE id = $3
+            `;
+
+            await pool.query(updateInventoryQuery, [
+              quantity,
+              quantity,
+              inventoryItemId,
+            ]);
+
+            console.log(
+              `Updated inventory item ${inventoryItemId}: Reserved ${quantity} items`
+            );
+          }
+
+          // Insert the request
+          const insertQuery = `
+            INSERT INTO item_requests (
+              id,
+              title,
+              description,
+              category_id,
+              priority,
+              status,
+              user_id,
+              quantity,
+              fulfillment_date,
+              inventory_item_id
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+            RETURNING id
+          `;
+
+          const insertParams = [
             request.id,
             title,
             description,
@@ -459,45 +548,78 @@ app.post("/db/requests", async (req, res) => {
             quantity,
             fulfillmentDate ? new Date(fulfillmentDate) : null,
             inventoryItemId || null,
-          ]
-        );
+          ];
 
-        // Get the created request
-        try {
-          console.log("Retrieving created request with ID:", request.id);
-          const [createdRequest] = await connection.query(
-            `
-            SELECT
-              ir.id,
-              ir.title,
-              ir.description,
-              c.id as category,
-              c.name as categoryName,
-              ir.priority,
-              ir.status,
-              ir.user_id as userId,
-              ir.created_at as createdAt,
-              ir.updated_at as updatedAt,
-              ir.quantity,
-              ir.fulfillment_date as fulfillmentDate,
-              ir.inventory_item_id as inventoryItemId,
-              CASE WHEN ii.id IS NOT NULL THEN ii.name ELSE NULL END as inventoryItemName,
-              CASE WHEN ii.id IS NOT NULL THEN ii.quantity_available ELSE NULL END as inventoryQuantityAvailable,
-              CASE WHEN ii.id IS NOT NULL THEN ii.quantity_reserved ELSE NULL END as inventoryQuantityReserved
-            FROM item_requests ir
-            JOIN categories c ON ir.category_id = c.id
-            LEFT JOIN inventory_items ii ON ir.inventory_item_id = ii.id
-            WHERE ir.id = ?
-          `,
-            [request.id]
-          );
+          const insertResult = await pool.query(insertQuery, insertParams);
+          console.log("Request inserted with ID:", insertResult.rows[0].id);
 
-          console.log("Query result length:", createdRequest.length);
+          // Get the created request
+          try {
+            console.log("Retrieving created request with ID:", request.id);
+            const createdRequestQuery = `
+              SELECT
+                ir.id,
+                ir.title,
+                ir.description,
+                c.id as category,
+                c.name as "categoryName",
+                ir.priority,
+                ir.status,
+                ir.user_id as "userId",
+                ir.created_at as "createdAt",
+                ir.updated_at as "updatedAt",
+                ir.quantity,
+                ir.fulfillment_date as "fulfillmentDate",
+                ir.inventory_item_id as "inventoryItemId",
+                CASE WHEN ii.id IS NOT NULL THEN ii.name ELSE NULL END as "inventoryItemName",
+                CASE WHEN ii.id IS NOT NULL THEN ii.quantity_available ELSE NULL END as "inventoryQuantityAvailable",
+                CASE WHEN ii.id IS NOT NULL THEN ii.quantity_reserved ELSE NULL END as "inventoryQuantityReserved"
+              FROM item_requests ir
+              JOIN categories c ON ir.category_id = c.id
+              LEFT JOIN inventory_items ii ON ir.inventory_item_id = ii.id
+              WHERE ir.id = $1
+            `;
 
-          if (!createdRequest || createdRequest.length === 0) {
+            const createdRequestResult = await pool.query(createdRequestQuery, [
+              request.id,
+            ]);
+
             console.log(
-              "Created request not found in database, using fallback response"
+              "Query result length:",
+              createdRequestResult.rows.length
             );
+
+            if (!createdRequestResult.rows.length) {
+              console.log(
+                "Created request not found in database, using fallback response"
+              );
+              // Return a fallback response with the request data
+              const fallbackResponse = {
+                id: request.id,
+                title: request.title,
+                description: request.description,
+                category: request.category,
+                priority: request.priority,
+                status: request.status,
+                userId: request.userId,
+                quantity: request.quantity,
+                createdAt: new Date().toISOString(),
+                updatedAt: new Date().toISOString(),
+                message: "Request created but could not retrieve details",
+              };
+              console.log("Sending fallback response:", fallbackResponse);
+              return res.json(fallbackResponse);
+            }
+
+            console.log(
+              "Created request retrieved successfully:",
+              createdRequestResult.rows[0]
+            );
+
+            // Return the response as JSON
+            return res.json(createdRequestResult.rows[0]);
+          } catch (selectError) {
+            console.error("Error retrieving created request:", selectError);
             // Return a fallback response with the request data
             const fallbackResponse = {
               id: request.id,
@@ -512,43 +634,19 @@ app.post("/db/requests", async (req, res) => {
               updatedAt: new Date().toISOString(),
               message: "Request created but could not retrieve details",
             };
-            console.log("Sending fallback response:", fallbackResponse);
-            connection.release();
+            console.log(
+              "Sending fallback response due to error:",
+              fallbackResponse
+            );
+
+            // Return the fallback response as JSON
             return res.json(fallbackResponse);
           }
-
-          console.log(
-            "Created request retrieved successfully:",
-            createdRequest[0]
-          );
-          connection.release();
-
-          // Return the response as JSON
-          return res.json(createdRequest[0]);
-        } catch (selectError) {
-          console.error("Error retrieving created request:", selectError);
-          // Return a fallback response with the request data
-          const fallbackResponse = {
-            id: request.id,
-            title: request.title,
-            description: request.description,
-            category: request.category,
-            priority: request.priority,
-            status: request.status,
-            userId: request.userId,
-            quantity: request.quantity,
-            createdAt: new Date().toISOString(),
-            updatedAt: new Date().toISOString(),
-            message: "Request created but could not retrieve details",
-          };
-          console.log(
-            "Sending fallback response due to error:",
-            fallbackResponse
-          );
-          connection.release();
-
-          // Return the fallback response as JSON
-          return res.json(fallbackResponse);
+        } catch (error) {
+          console.error("Error creating request:", error);
+          res
+            .status(500)
+            .json({ message: "Error creating request", error: error.message });
         }
         break;
 
@@ -970,11 +1068,18 @@ app.post("/db/requests", async (req, res) => {
 
 // Handle inventory requests
 app.post("/db/inventory", async (req, res) => {
+  console.log(
+    "Inventory request received from:",
+    req.headers.origin || "unknown origin"
+  );
+  console.log("Inventory request headers:", req.headers);
+
   const { action, categoryId } = req.body;
   console.log("Request body:", req.body);
 
   try {
-    const connection = await pool.getConnection();
+    // For PostgreSQL, we don't need to get a connection from the pool for each query
+    // The pool will manage connections automatically
 
     switch (action) {
       case "getAll":
@@ -984,16 +1089,16 @@ app.post("/db/inventory", async (req, res) => {
             i.id,
             i.name,
             i.description,
-            i.category_id as categoryId,
-            c.name as categoryName,
+            i.category_id as "categoryId",
+            c.name as "categoryName",
             i.sku,
-            i.quantity_available as quantityAvailable,
-            i.quantity_reserved as quantityReserved,
-            i.unit_price as unitPrice,
+            i.quantity_available as "quantityAvailable",
+            i.quantity_reserved as "quantityReserved",
+            i.unit_price as "unitPrice",
             i.location,
-            i.image_url as imageUrl,
-            i.created_at as createdAt,
-            i.updated_at as updatedAt
+            i.image_url as "imageUrl",
+            i.created_at as "createdAt",
+            i.updated_at as "updatedAt"
           FROM inventory_items i
           JOIN categories c ON i.category_id = c.id
         `;
@@ -1001,58 +1106,68 @@ app.post("/db/inventory", async (req, res) => {
         // Add category filter if provided
         const params = [];
         if (categoryId) {
-          query += ` WHERE i.category_id = ?`;
+          query += ` WHERE i.category_id = $1`;
           params.push(categoryId);
         }
 
         // Add ordering
         query += ` ORDER BY i.name`;
 
-        // Execute the query
-        const [items] = await connection.query(query, params);
+        console.log("Executing query:", query);
+        console.log("Query parameters:", params);
 
-        connection.release();
-        res.json(items);
+        // Execute the query
+        const result = await pool.query(query, params);
+
+        console.log(`Retrieved ${result.rows.length} inventory items`);
+
+        // Log the first few items for debugging
+        if (result.rows.length > 0) {
+          console.log(
+            "First 3 items:",
+            result.rows.slice(0, 3).map((item) => item.name)
+          );
+        }
+
+        res.json(result.rows);
         break;
 
       case "getById":
         // Get a specific inventory item by ID
         const { id } = req.body;
         if (!id) {
-          connection.release();
           return res.status(400).json({ message: "Item ID is required" });
         }
 
-        const [item] = await connection.query(
-          `
+        const itemQuery = `
           SELECT
             i.id,
             i.name,
             i.description,
-            i.category_id as categoryId,
-            c.name as categoryName,
+            i.category_id as "categoryId",
+            c.name as "categoryName",
             i.sku,
-            i.quantity_available as quantityAvailable,
-            i.quantity_reserved as quantityReserved,
-            i.unit_price as unitPrice,
+            i.quantity_available as "quantityAvailable",
+            i.quantity_reserved as "quantityReserved",
+            i.unit_price as "unitPrice",
             i.location,
-            i.image_url as imageUrl,
-            i.created_at as createdAt,
-            i.updated_at as updatedAt
+            i.image_url as "imageUrl",
+            i.created_at as "createdAt",
+            i.updated_at as "updatedAt"
           FROM inventory_items i
           JOIN categories c ON i.category_id = c.id
-          WHERE i.id = ?
-        `,
-          [id]
-        );
+          WHERE i.id = $1
+        `;
 
-        if (item.length === 0) {
-          connection.release();
+        console.log("Executing getById query for item:", id);
+        const itemResult = await pool.query(itemQuery, [id]);
+
+        if (itemResult.rows.length === 0) {
           return res.status(404).json({ message: "Item not found" });
         }
 
-        connection.release();
-        res.json(item[0]);
+        console.log("Retrieved item:", itemResult.rows[0].name);
+        res.json(itemResult.rows[0]);
         break;
 
       case "create":
@@ -1313,292 +1428,310 @@ app.post("/db/users", async (req, res) => {
   console.log("Users request body:", req.body);
 
   try {
-    const connection = await pool.getConnection();
+    // For PostgreSQL, we don't need to get a connection from the pool for each query
+    // The pool will manage connections automatically
 
     switch (action) {
       case "getAll":
-        // Get all users
-        const [users] = await connection.query(`
-          SELECT
-            id,
-            name,
-            email,
-            role,
-            department,
-            avatar_url as avatarUrl,
-            created_at as createdAt
-          FROM users
-          ORDER BY name
-        `);
+        try {
+          // Get all users
+          console.log("Getting all users");
+          const usersQuery = `
+            SELECT
+              id,
+              name,
+              email,
+              role,
+              department,
+              avatar_url as "avatarUrl",
+              created_at as "createdAt"
+            FROM users
+            ORDER BY name
+          `;
 
-        connection.release();
-        res.json(users);
+          const usersResult = await pool.query(usersQuery);
+          console.log(`Found ${usersResult.rows.length} users`);
+
+          if (usersResult.rows.length > 0) {
+            console.log("First user:", usersResult.rows[0].name);
+          }
+
+          res.json(usersResult.rows);
+        } catch (error) {
+          console.error("Error fetching users:", error);
+          res
+            .status(500)
+            .json({ message: "Error fetching users", error: error.message });
+        }
         break;
 
       case "getById":
-        // Get a specific user by ID
-        const { id } = req.body;
-        if (!id) {
-          connection.release();
-          return res.status(400).json({ message: "User ID is required" });
+        try {
+          // Get a specific user by ID
+          const { id } = req.body;
+          if (!id) {
+            return res.status(400).json({ message: "User ID is required" });
+          }
+
+          const userQuery = `
+            SELECT
+              id,
+              name,
+              email,
+              role,
+              department,
+              avatar_url as "avatarUrl",
+              created_at as "createdAt"
+            FROM users
+            WHERE id = $1
+          `;
+
+          const userResult = await pool.query(userQuery, [id]);
+
+          if (userResult.rows.length === 0) {
+            return res.status(404).json({ message: "User not found" });
+          }
+
+          console.log(`Retrieved user: ${userResult.rows[0].name}`);
+          res.json(userResult.rows[0]);
+        } catch (error) {
+          console.error("Error fetching user by ID:", error);
+          res
+            .status(500)
+            .json({ message: "Error fetching user", error: error.message });
         }
-
-        const [user] = await connection.query(
-          `
-          SELECT
-            id,
-            name,
-            email,
-            role,
-            department,
-            avatar_url as avatarUrl,
-            created_at as createdAt
-          FROM users
-          WHERE id = ?
-        `,
-          [id]
-        );
-
-        if (user.length === 0) {
-          connection.release();
-          return res.status(404).json({ message: "User not found" });
-        }
-
-        connection.release();
-        res.json(user[0]);
         break;
 
       case "create":
-        // Create a new user
-        const { name, email, password, role, department, avatarUrl } = req.body;
+        try {
+          // Create a new user
+          const { name, email, password, role, department, avatarUrl } =
+            req.body;
 
-        // Validate required fields
-        if (!name || !email || !role) {
-          connection.release();
-          return res
-            .status(400)
-            .json({ message: "Name, email, and role are required" });
-        }
+          // Validate required fields
+          if (!name || !email || !role) {
+            return res
+              .status(400)
+              .json({ message: "Name, email, and role are required" });
+          }
 
-        // Check if email already exists
-        const [existingEmail] = await connection.query(
-          "SELECT id FROM users WHERE email = ?",
-          [email]
-        );
+          // Check if email already exists
+          const emailCheckQuery = "SELECT id FROM users WHERE email = $1";
+          const emailCheckResult = await pool.query(emailCheckQuery, [email]);
 
-        if (existingEmail.length > 0) {
-          connection.release();
-          return res.status(400).json({ message: "Email already exists" });
-        }
+          if (emailCheckResult.rows.length > 0) {
+            return res.status(400).json({ message: "Email already exists" });
+          }
 
-        // Generate a new UUID for the user
-        const newUserId = uuidv4();
+          // Generate a new UUID for the user
+          const newUserId = uuidv4();
 
-        // Insert the new user
-        await connection.query(
-          `
-          INSERT INTO users (
-            id,
+          // Hash the password or use a default if not provided
+          const defaultPassword = "password";
+          const salt = await bcrypt.genSalt(10);
+          const hashedPassword = await bcrypt.hash(
+            password || defaultPassword,
+            salt
+          );
+
+          // Insert the new user
+          const insertQuery = `
+            INSERT INTO users (
+              id,
+              name,
+              email,
+              password,
+              role,
+              department,
+              avatar_url,
+              created_at
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())
+            RETURNING id, name, email, role, department, avatar_url as "avatarUrl", created_at as "createdAt"
+          `;
+
+          const insertResult = await pool.query(insertQuery, [
+            newUserId,
             name,
             email,
+            hashedPassword,
             role,
-            department,
-            avatar_url,
-            created_at
-          ) VALUES (?, ?, ?, ?, ?, ?, NOW())
-          `,
-          [newUserId, name, email, role, department || null, avatarUrl || null]
-        );
+            department || null,
+            avatarUrl || null,
+          ]);
 
-        // Get the newly created user
-        const [newUser] = await connection.query(
-          `
-          SELECT
-            id,
-            name,
-            email,
-            role,
-            department,
-            avatar_url as avatarUrl,
-            created_at as createdAt
-          FROM users
-          WHERE id = ?
-          `,
-          [newUserId]
-        );
-
-        connection.release();
-        res.status(201).json(newUser[0]);
+          console.log(`Created new user: ${name} with ID ${newUserId}`);
+          res.status(201).json(insertResult.rows[0]);
+        } catch (error) {
+          console.error("Error creating user:", error);
+          res
+            .status(500)
+            .json({ message: "Error creating user", error: error.message });
+        }
         break;
 
       case "update":
-        // Update an existing user
-        const {
-          id: updateUserId,
-          name: updateName,
-          email: updateEmail,
-          password: updatePassword,
-          role: updateRole,
-          department: updateDepartment,
-          avatarUrl: updateAvatarUrl,
-        } = req.body;
+        try {
+          // Update an existing user
+          const {
+            id: updateUserId,
+            name: updateName,
+            email: updateEmail,
+            // password: updatePassword, // Not used currently
+            role: updateRole,
+            department: updateDepartment,
+            avatarUrl: updateAvatarUrl,
+          } = req.body;
 
-        console.log("Update user request:", {
-          updateUserId,
-          updateName,
-          updateEmail,
-          updateRole,
-          updateDepartment,
-          updateAvatarUrl,
-        });
+          console.log("Update user request:", {
+            updateUserId,
+            updateName,
+            updateEmail,
+            updateRole,
+            updateDepartment,
+            updateAvatarUrl,
+          });
 
-        // Validate required fields
-        if (!updateUserId) {
-          connection.release();
-          return res.status(400).json({ message: "User ID is required" });
-        }
-
-        // Check if the user exists
-        const [existingUser] = await connection.query(
-          "SELECT * FROM users WHERE id = ?",
-          [updateUserId]
-        );
-
-        if (existingUser.length === 0) {
-          connection.release();
-          return res.status(404).json({ message: "User not found" });
-        }
-
-        // If email is changing, check if the new email already exists
-        if (updateEmail && updateEmail !== existingUser[0].email) {
-          const [existingEmailCheck] = await connection.query(
-            "SELECT id FROM users WHERE email = ? AND id != ?",
-            [updateEmail, updateUserId]
-          );
-
-          if (existingEmailCheck.length > 0) {
-            connection.release();
-            return res.status(400).json({ message: "Email already exists" });
+          // Validate required fields
+          if (!updateUserId) {
+            return res.status(400).json({ message: "User ID is required" });
           }
+
+          // Check if the user exists
+          const userCheckQuery = "SELECT * FROM users WHERE id = $1";
+          const userCheckResult = await pool.query(userCheckQuery, [
+            updateUserId,
+          ]);
+
+          if (userCheckResult.rows.length === 0) {
+            return res.status(404).json({ message: "User not found" });
+          }
+
+          const existingUser = userCheckResult.rows[0];
+
+          // If email is changing, check if the new email already exists
+          if (updateEmail && updateEmail !== existingUser.email) {
+            const emailCheckQuery =
+              "SELECT id FROM users WHERE email = $1 AND id != $2";
+            const emailCheckResult = await pool.query(emailCheckQuery, [
+              updateEmail,
+              updateUserId,
+            ]);
+
+            if (emailCheckResult.rows.length > 0) {
+              return res.status(400).json({ message: "Email already exists" });
+            }
+          }
+
+          // Build the update query dynamically
+          let updateQuery = "UPDATE users SET ";
+          const updateValues = [];
+          const updateParts = [];
+          let paramIndex = 1;
+
+          if (updateName !== undefined) {
+            updateParts.push(`name = $${paramIndex}`);
+            updateValues.push(updateName);
+            paramIndex++;
+          }
+
+          if (updateEmail !== undefined) {
+            updateParts.push(`email = $${paramIndex}`);
+            updateValues.push(updateEmail);
+            paramIndex++;
+          }
+
+          if (updateRole !== undefined) {
+            updateParts.push(`role = $${paramIndex}`);
+            updateValues.push(updateRole);
+            paramIndex++;
+          }
+
+          if (updateDepartment !== undefined) {
+            updateParts.push(`department = $${paramIndex}`);
+            updateValues.push(updateDepartment);
+            paramIndex++;
+          }
+
+          if (updateAvatarUrl !== undefined) {
+            updateParts.push(`avatar_url = $${paramIndex}`);
+            updateValues.push(updateAvatarUrl);
+            paramIndex++;
+          }
+
+          // If no fields to update, return the existing user
+          if (updateParts.length === 0) {
+            return res.status(400).json({ message: "No fields to update" });
+          }
+
+          // Complete the update query
+          updateQuery += updateParts.join(", ");
+          updateQuery += ` WHERE id = $${paramIndex} RETURNING id, name, email, role, department, avatar_url as "avatarUrl", created_at as "createdAt"`;
+          updateValues.push(updateUserId);
+
+          console.log("Update query:", updateQuery);
+          console.log("Update values:", updateValues);
+
+          // Execute the update query
+          const updateResult = await pool.query(updateQuery, updateValues);
+
+          console.log("Updated user from database:", updateResult.rows[0]);
+          res.json(updateResult.rows[0]);
+        } catch (error) {
+          console.error("Error updating user:", error);
+          res
+            .status(500)
+            .json({ message: "Error updating user", error: error.message });
         }
-
-        // Build the update query dynamically
-        const updateFields = [];
-        const updateValues = [];
-
-        if (updateName !== undefined) {
-          updateFields.push("name = ?");
-          updateValues.push(updateName);
-        }
-
-        if (updateEmail !== undefined) {
-          updateFields.push("email = ?");
-          updateValues.push(updateEmail);
-        }
-
-        // Password field is not in the database yet
-        // if (updatePassword !== undefined) {
-        //   updateFields.push("password = ?");
-        //   updateValues.push(updatePassword);
-        // }
-
-        if (updateRole !== undefined) {
-          updateFields.push("role = ?");
-          updateValues.push(updateRole);
-        }
-
-        if (updateDepartment !== undefined) {
-          updateFields.push("department = ?");
-          updateValues.push(updateDepartment);
-        }
-
-        if (updateAvatarUrl !== undefined) {
-          updateFields.push("avatar_url = ?");
-          updateValues.push(updateAvatarUrl);
-        }
-
-        // If no fields to update, return the existing user
-        if (updateFields.length === 0) {
-          connection.release();
-          return res.status(400).json({ message: "No fields to update" });
-        }
-
-        // Execute the update query
-        const updateQuery = `UPDATE users SET ${updateFields.join(
-          ", "
-        )} WHERE id = ?`;
-        console.log("Update query:", updateQuery);
-        console.log("Update values:", [...updateValues, updateUserId]);
-
-        await connection.query(updateQuery, [...updateValues, updateUserId]);
-
-        // Get the updated user
-        const [updatedUser] = await connection.query(
-          `
-          SELECT
-            id,
-            name,
-            email,
-            role,
-            department,
-            avatar_url as avatarUrl,
-            created_at as createdAt
-          FROM users
-          WHERE id = ?
-          `,
-          [updateUserId]
-        );
-
-        console.log("Updated user from database:", updatedUser[0]);
-
-        connection.release();
-        res.json(updatedUser[0]);
         break;
 
       case "delete":
-        // Delete a user
-        const { id: deleteUserId } = req.body;
+        try {
+          // Delete a user
+          const { id: deleteUserId } = req.body;
 
-        if (!deleteUserId) {
-          connection.release();
-          return res.status(400).json({ message: "User ID is required" });
+          if (!deleteUserId) {
+            return res.status(400).json({ message: "User ID is required" });
+          }
+
+          // Check if the user exists
+          const userCheckQuery = "SELECT * FROM users WHERE id = $1";
+          const userCheckResult = await pool.query(userCheckQuery, [
+            deleteUserId,
+          ]);
+
+          if (userCheckResult.rows.length === 0) {
+            return res.status(404).json({ message: "User not found" });
+          }
+
+          // Check if the user is referenced in any requests
+          const requestsCheckQuery =
+            "SELECT COUNT(*) as count FROM item_requests WHERE user_id = $1";
+          const requestsCheckResult = await pool.query(requestsCheckQuery, [
+            deleteUserId,
+          ]);
+
+          if (parseInt(requestsCheckResult.rows[0].count, 10) > 0) {
+            return res.status(400).json({
+              message: "Cannot delete user that has created requests",
+              requestCount: parseInt(requestsCheckResult.rows[0].count, 10),
+            });
+          }
+
+          // Delete the user
+          const deleteQuery = "DELETE FROM users WHERE id = $1";
+          await pool.query(deleteQuery, [deleteUserId]);
+
+          console.log(`Deleted user with ID: ${deleteUserId}`);
+          res.json({ message: "User deleted successfully", id: deleteUserId });
+        } catch (error) {
+          console.error("Error deleting user:", error);
+          res
+            .status(500)
+            .json({ message: "Error deleting user", error: error.message });
         }
-
-        // Check if the user exists
-        const [userToDelete] = await connection.query(
-          "SELECT * FROM users WHERE id = ?",
-          [deleteUserId]
-        );
-
-        if (userToDelete.length === 0) {
-          connection.release();
-          return res.status(404).json({ message: "User not found" });
-        }
-
-        // Check if the user is referenced in any requests
-        const [referencedRequests] = await connection.query(
-          "SELECT COUNT(*) as count FROM item_requests WHERE user_id = ?",
-          [deleteUserId]
-        );
-
-        if (referencedRequests[0].count > 0) {
-          connection.release();
-          return res.status(400).json({
-            message: "Cannot delete user that has created requests",
-          });
-        }
-
-        // Delete the user
-        await connection.query("DELETE FROM users WHERE id = ?", [
-          deleteUserId,
-        ]);
-
-        connection.release();
-        res.json({ message: "User deleted successfully" });
         break;
 
       default:
-        connection.release();
         res.status(400).json({ message: "Invalid action" });
     }
   } catch (error) {
@@ -1610,245 +1743,383 @@ app.post("/db/users", async (req, res) => {
 // Handle categories requests
 app.post("/db/categories", async (req, res) => {
   const { action } = req.body;
-  console.log("Request body:", req.body);
+  console.log("Categories request body:", req.body);
 
   try {
-    const connection = await pool.getConnection();
+    // For PostgreSQL, we don't need to get a connection from the pool for each query
+    // The pool will manage connections automatically
 
     switch (action) {
       case "getAll":
-        // Get all categories
-        const [categories] = await connection.query(`
-          SELECT
-            id,
-            name,
-            description
-          FROM categories
-          ORDER BY name
-        `);
+        try {
+          // Get all categories
+          console.log("Getting all categories");
+          const categoriesQuery = `
+            SELECT
+              id,
+              name,
+              description
+            FROM categories
+            ORDER BY name
+          `;
 
-        // Get item counts for each category
-        for (const category of categories) {
-          const [countResult] = await connection.query(
-            `SELECT COUNT(*) as count FROM inventory_items WHERE category_id = ?`,
-            [category.id]
-          );
-          category.itemCount = countResult[0].count;
+          const categoriesResult = await pool.query(categoriesQuery);
+          console.log(`Found ${categoriesResult.rows.length} categories`);
+
+          // Get item counts for each category
+          for (const category of categoriesResult.rows) {
+            const countQuery = `
+              SELECT COUNT(*) as count
+              FROM inventory_items
+              WHERE category_id = $1
+            `;
+
+            const countResult = await pool.query(countQuery, [category.id]);
+            category.itemCount = parseInt(countResult.rows[0].count, 10);
+
+            console.log(
+              `- ${category.name} (${category.id}): ${category.itemCount} items`
+            );
+          }
+
+          res.json(categoriesResult.rows);
+        } catch (error) {
+          console.error("Error fetching categories:", error);
+          res.status(500).json({
+            message: "Error fetching categories",
+            error: error.message,
+          });
         }
-
-        connection.release();
-        res.json(categories);
         break;
 
       case "getById":
-        // Get a specific category by ID
-        const { id } = req.body;
-        if (!id) {
-          connection.release();
-          return res.status(400).json({ message: "Category ID is required" });
+        try {
+          // Get a specific category by ID
+          const { id } = req.body;
+          if (!id) {
+            return res.status(400).json({ message: "Category ID is required" });
+          }
+
+          const categoryQuery = `
+            SELECT
+              id,
+              name,
+              description
+            FROM categories
+            WHERE id = $1
+          `;
+
+          const categoryResult = await pool.query(categoryQuery, [id]);
+
+          if (categoryResult.rows.length === 0) {
+            return res.status(404).json({ message: "Category not found" });
+          }
+
+          const category = categoryResult.rows[0];
+
+          // Get item count for the category
+          const countQuery = `
+            SELECT COUNT(*) as count
+            FROM inventory_items
+            WHERE category_id = $1
+          `;
+
+          const countResult = await pool.query(countQuery, [id]);
+          category.itemCount = parseInt(countResult.rows[0].count, 10);
+
+          console.log(
+            `Retrieved category: ${category.name} with ${category.itemCount} items`
+          );
+          res.json(category);
+        } catch (error) {
+          console.error("Error fetching category by ID:", error);
+          res
+            .status(500)
+            .json({ message: "Error fetching category", error: error.message });
         }
-
-        const [category] = await connection.query(
-          `
-          SELECT
-            id,
-            name,
-            description
-          FROM categories
-          WHERE id = ?
-        `,
-          [id]
-        );
-
-        if (category.length === 0) {
-          connection.release();
-          return res.status(404).json({ message: "Category not found" });
-        }
-
-        // Get item count for the category
-        const [countResult] = await connection.query(
-          `SELECT COUNT(*) as count FROM inventory_items WHERE category_id = ?`,
-          [id]
-        );
-        category[0].itemCount = countResult[0].count;
-
-        connection.release();
-        res.json(category[0]);
         break;
 
       case "create":
-        // Create a new category
-        const { name, description } = req.body;
+        try {
+          // Create a new category
+          const { name, description } = req.body;
 
-        // Validate required fields
-        if (!name) {
-          connection.release();
-          return res.status(400).json({ message: "Category name is required" });
+          // Validate required fields
+          if (!name) {
+            return res
+              .status(400)
+              .json({ message: "Category name is required" });
+          }
+
+          // Generate a new UUID for the category
+          const newCategoryId = uuidv4();
+
+          // Insert the new category
+          const insertQuery = `
+            INSERT INTO categories (
+              id,
+              name,
+              description
+            ) VALUES ($1, $2, $3)
+            RETURNING id, name, description
+          `;
+
+          const insertResult = await pool.query(insertQuery, [
+            newCategoryId,
+            name,
+            description || null,
+          ]);
+
+          console.log(`Created new category: ${name} with ID ${newCategoryId}`);
+          res.status(201).json(insertResult.rows[0]);
+        } catch (error) {
+          console.error("Error creating category:", error);
+          res
+            .status(500)
+            .json({ message: "Error creating category", error: error.message });
         }
-
-        // Generate a new UUID for the category
-        const newCategoryId = uuidv4();
-
-        // Insert the new category
-        await connection.query(
-          `
-          INSERT INTO categories (
-            id,
-            name,
-            description
-          ) VALUES (?, ?, ?)
-          `,
-          [newCategoryId, name, description || null]
-        );
-
-        // Get the newly created category
-        const [newCategory] = await connection.query(
-          `
-          SELECT
-            id,
-            name,
-            description
-          FROM categories
-          WHERE id = ?
-          `,
-          [newCategoryId]
-        );
-
-        connection.release();
-        res.status(201).json(newCategory[0]);
         break;
 
       case "update":
-        // Update an existing category
-        const {
-          id: updateCategoryId,
-          name: updateName,
-          description: updateDescription,
-        } = req.body;
+        try {
+          // Update an existing category
+          const {
+            id: updateCategoryId,
+            name: updateName,
+            description: updateDescription,
+          } = req.body;
 
-        // Validate required fields
-        if (!updateCategoryId) {
-          connection.release();
-          return res.status(400).json({ message: "Category ID is required" });
+          // Validate required fields
+          if (!updateCategoryId) {
+            return res.status(400).json({ message: "Category ID is required" });
+          }
+
+          // Check if the category exists
+          const checkQuery = "SELECT * FROM categories WHERE id = $1";
+          const existingCategory = await pool.query(checkQuery, [
+            updateCategoryId,
+          ]);
+
+          if (existingCategory.rows.length === 0) {
+            return res.status(404).json({ message: "Category not found" });
+          }
+
+          // Build the update query dynamically
+          let updateQuery = "UPDATE categories SET ";
+          const updateValues = [];
+          const updateParts = [];
+          let paramIndex = 1;
+
+          if (updateName !== undefined) {
+            updateParts.push(`name = $${paramIndex}`);
+            updateValues.push(updateName);
+            paramIndex++;
+          }
+
+          if (updateDescription !== undefined) {
+            updateParts.push(`description = $${paramIndex}`);
+            updateValues.push(updateDescription);
+            paramIndex++;
+          }
+
+          // If no fields to update, return the existing category
+          if (updateParts.length === 0) {
+            return res.status(400).json({ message: "No fields to update" });
+          }
+
+          // Complete the update query
+          updateQuery += updateParts.join(", ");
+          updateQuery += ` WHERE id = $${paramIndex} RETURNING id, name, description`;
+          updateValues.push(updateCategoryId);
+
+          // Execute the update query
+          const updateResult = await pool.query(updateQuery, updateValues);
+
+          console.log(`Updated category: ${updateResult.rows[0].name}`);
+          res.json(updateResult.rows[0]);
+        } catch (error) {
+          console.error("Error updating category:", error);
+          res
+            .status(500)
+            .json({ message: "Error updating category", error: error.message });
         }
-
-        // Check if the category exists
-        const [existingCategory] = await connection.query(
-          "SELECT * FROM categories WHERE id = ?",
-          [updateCategoryId]
-        );
-
-        if (existingCategory.length === 0) {
-          connection.release();
-          return res.status(404).json({ message: "Category not found" });
-        }
-
-        // Build the update query dynamically
-        const updateFields = [];
-        const updateValues = [];
-
-        if (updateName !== undefined) {
-          updateFields.push("name = ?");
-          updateValues.push(updateName);
-        }
-
-        if (updateDescription !== undefined) {
-          updateFields.push("description = ?");
-          updateValues.push(updateDescription);
-        }
-
-        // If no fields to update, return the existing category
-        if (updateFields.length === 0) {
-          connection.release();
-          return res.status(400).json({ message: "No fields to update" });
-        }
-
-        // Execute the update query
-        await connection.query(
-          `UPDATE categories SET ${updateFields.join(", ")} WHERE id = ?`,
-          [...updateValues, updateCategoryId]
-        );
-
-        // Get the updated category
-        const [updatedCategory] = await connection.query(
-          `
-          SELECT
-            id,
-            name,
-            description
-          FROM categories
-          WHERE id = ?
-          `,
-          [updateCategoryId]
-        );
-
-        connection.release();
-        res.json(updatedCategory[0]);
         break;
 
       case "delete":
-        // Delete a category
-        const { id: deleteCategoryId } = req.body;
+        try {
+          // Delete a category
+          const { id: deleteCategoryId } = req.body;
 
-        if (!deleteCategoryId) {
-          connection.release();
-          return res.status(400).json({ message: "Category ID is required" });
-        }
+          if (!deleteCategoryId) {
+            return res.status(400).json({ message: "Category ID is required" });
+          }
 
-        // Check if the category exists
-        const [categoryToDelete] = await connection.query(
-          "SELECT * FROM categories WHERE id = ?",
-          [deleteCategoryId]
-        );
+          // Check if the category exists
+          const checkQuery = "SELECT * FROM categories WHERE id = $1";
+          const categoryResult = await pool.query(checkQuery, [
+            deleteCategoryId,
+          ]);
 
-        if (categoryToDelete.length === 0) {
-          connection.release();
-          return res.status(404).json({ message: "Category not found" });
-        }
+          if (categoryResult.rows.length === 0) {
+            return res.status(404).json({ message: "Category not found" });
+          }
 
-        // Check if the category is referenced in any inventory items
-        const [referencedItems] = await connection.query(
-          "SELECT COUNT(*) as count FROM inventory_items WHERE category_id = ?",
-          [deleteCategoryId]
-        );
+          // Check if the category is referenced in any inventory items
+          const itemsQuery =
+            "SELECT COUNT(*) as count FROM inventory_items WHERE category_id = $1";
+          const itemsResult = await pool.query(itemsQuery, [deleteCategoryId]);
 
-        if (referencedItems[0].count > 0) {
-          connection.release();
-          return res.status(400).json({
-            message:
-              "Cannot delete category that is referenced in inventory items",
+          if (parseInt(itemsResult.rows[0].count, 10) > 0) {
+            return res.status(400).json({
+              message:
+                "Cannot delete category that is referenced in inventory items",
+              itemCount: parseInt(itemsResult.rows[0].count, 10),
+            });
+          }
+
+          // Check if the category is referenced in any requests
+          const requestsQuery =
+            "SELECT COUNT(*) as count FROM item_requests WHERE category_id = $1";
+          const requestsResult = await pool.query(requestsQuery, [
+            deleteCategoryId,
+          ]);
+
+          if (parseInt(requestsResult.rows[0].count, 10) > 0) {
+            return res.status(400).json({
+              message: "Cannot delete category that is referenced in requests",
+              requestCount: parseInt(requestsResult.rows[0].count, 10),
+            });
+          }
+
+          // Delete the category
+          const deleteQuery = "DELETE FROM categories WHERE id = $1";
+          await pool.query(deleteQuery, [deleteCategoryId]);
+
+          console.log(`Deleted category with ID: ${deleteCategoryId}`);
+          res.json({
+            message: "Category deleted successfully",
+            id: deleteCategoryId,
           });
+        } catch (error) {
+          console.error("Error deleting category:", error);
+          res
+            .status(500)
+            .json({ message: "Error deleting category", error: error.message });
         }
-
-        // Check if the category is referenced in any requests
-        const [referencedRequests] = await connection.query(
-          "SELECT COUNT(*) as count FROM item_requests WHERE category_id = ?",
-          [deleteCategoryId]
-        );
-
-        if (referencedRequests[0].count > 0) {
-          connection.release();
-          return res.status(400).json({
-            message: "Cannot delete category that is referenced in requests",
-          });
-        }
-
-        // Delete the category
-        await connection.query("DELETE FROM categories WHERE id = ?", [
-          deleteCategoryId,
-        ]);
-
-        connection.release();
-        res.json({ message: "Category deleted successfully" });
         break;
 
       default:
-        connection.release();
         res.status(400).json({ message: "Invalid action" });
     }
   } catch (error) {
     console.error("Error executing database operation:", error);
     res.status(500).json({ message: "Database error", error: error.message });
+  }
+});
+
+// Authentication endpoints for Neon PostgreSQL
+app.post("/api/auth/verify", async (req, res) => {
+  const { userId } = req.body;
+  console.log("Verifying user session:", userId);
+
+  try {
+    // Query for user with PostgreSQL
+    const result = await pgPool.query("SELECT 1 FROM users WHERE id = $1", [
+      userId,
+    ]);
+
+    if (result.rows.length > 0) {
+      console.log("User session verified for:", userId);
+      res.json({ valid: true });
+    } else {
+      console.log("Invalid session for user:", userId);
+      res.status(401).json({ valid: false, error: "Invalid session" });
+    }
+  } catch (error) {
+    console.error("Session verification error:", error);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+app.post("/api/auth/login", async (req, res) => {
+  const { email, password } = req.body;
+  console.log("Login attempt:", { email, password: "********" });
+
+  try {
+    // Query for user with PostgreSQL
+    const result = await pgPool.query(
+      "SELECT * FROM users WHERE email = $1 AND password = crypt($2, password)",
+      [email, password]
+    );
+
+    if (result.rows.length > 0) {
+      const user = result.rows[0];
+      console.log("User authenticated:", user.email);
+      res.json(user);
+    } else {
+      console.log("Authentication failed for:", email);
+      res.status(401).json({ error: "Invalid credentials" });
+    }
+  } catch (error) {
+    console.error("Login error:", error);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+app.post("/api/auth/register", async (req, res) => {
+  const { name, email, password, role, department } = req.body;
+  console.log("Registration attempt:", { name, email, role, department });
+
+  try {
+    // Check if email already exists
+    const checkResult = await pgPool.query(
+      "SELECT 1 FROM users WHERE email = $1",
+      [email]
+    );
+
+    if (checkResult.rows.length > 0) {
+      return res.status(400).json({ error: "Email already in use" });
+    }
+
+    // Create new user with PostgreSQL
+    const result = await pgPool.query(
+      `INSERT INTO users (name, email, password, role, department)
+       VALUES ($1, $2, crypt($3, gen_salt('bf')), $4, $5)
+       RETURNING *`,
+      [name, email, password, role, department]
+    );
+
+    if (result.rows.length > 0) {
+      const user = result.rows[0];
+      console.log("User registered:", user.email);
+      res.json(user);
+    } else {
+      throw new Error("Failed to create user");
+    }
+  } catch (error) {
+    console.error("Registration error:", error);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+app.post("/api/auth/verify", async (req, res) => {
+  const { userId } = req.body;
+  console.log("Verifying user session:", userId);
+
+  try {
+    // Check if user exists
+    const result = await pgPool.query("SELECT 1 FROM users WHERE id = $1", [
+      userId,
+    ]);
+
+    if (result.rows.length > 0) {
+      res.json({ valid: true });
+    } else {
+      res.status(401).json({ valid: false, error: "Invalid session" });
+    }
+  } catch (error) {
+    console.error("Session verification error:", error);
+    res.status(500).json({ error: "Server error" });
   }
 });
 

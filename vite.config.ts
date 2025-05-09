@@ -7,8 +7,20 @@ export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), "");
 
   return {
-    plugins: [react()],
+    plugins: [
+      react({
+        // Add this to ensure React is properly imported
+        jsxRuntime: "automatic",
+        jsxImportSource: "react",
+        babel: {
+          plugins: [
+            ["@babel/plugin-transform-react-jsx", { runtime: "automatic" }],
+          ],
+        },
+      }),
+    ],
     optimizeDeps: {
+      include: ["react", "react-dom"],
       exclude: ["lucide-react"],
     },
     server: {
@@ -26,10 +38,7 @@ export default defineConfig(({ mode }) => {
       },
     },
     define: {
-      // Only define import.meta.env variables for client-side use
-      "import.meta.env.VITE_API_URL": JSON.stringify(
-        env.VITE_API_URL || "http://localhost:3001"
-      ),
+      // Make environment variables available to the client
       "import.meta.env.VITE_SUPABASE_URL": JSON.stringify(
         env.NEXT_PUBLIC_SUPABASE_URL ||
           "https://jwrhtzjxdcahpceqkvbd.supabase.co"
@@ -38,7 +47,6 @@ export default defineConfig(({ mode }) => {
         env.NEXT_PUBLIC_SUPABASE_ANON_KEY ||
           "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imh2cmh0emp4ZGNhaHBjZXFrdmJkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDY0NTQ3NzcsImV4cCI6MjA2MjAzMDc3N30.3ihqV2D7BlJhBtL5BPwgf_8CzAN19w604mBwRGPihsQ"
       ),
-      "import.meta.env.MODE": JSON.stringify(mode),
     },
   };
 });

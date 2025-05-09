@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Supabase Connection Test</title>
+  <script src="https://unpkg.com/@supabase/supabase-js@2"></script>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      max-width: 800px;
+      margin: 0 auto;
+      padding: 20px;
+    }
+    .container {
+      border: 1px solid #ccc;
+      padding: 20px;
+      border-radius: 5px;
+    }
+    .success {
+      color: green;
+      font-weight: bold;
+    }
+    .error {
+      color: red;
+      font-weight: bold;
+    }
+    pre {
+      background-color: #f5f5f5;
+      padding: 10px;
+      border-radius: 5px;
+      overflow-x: auto;
+    }
+    button {
+      background-color: #4CAF50;
+      color: white;
+      padding: 10px 15px;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 16px;
+    }
+    button:hover {
+      background-color: #45a049;
+    }
+    input {
+      padding: 8px;
+      width: 100%;
+      margin-bottom: 10px;
+      box-sizing: border-box;
+    }
+    label {
+      font-weight: bold;
+    }
+  </style>
+</head>
+<body>
+  <h1>Supabase Connection Test</h1>
+  
+  <div class="container">
+    <h2>Connection Settings</h2>
+    <div>
+      <label for="supabaseUrl">Supabase URL:</label>
+      <input type="text" id="supabaseUrl" value="https://jwrhtzjxdcahpceqkvbd.supabase.co">
+    </div>
+    <div>
+      <label for="supabaseKey">Supabase Anon Key:</label>
+      <input type="text" id="supabaseKey" value="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imh2cmh0emp4ZGNhaHBjZXFrdmJkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDY0NTQ3NzcsImV4cCI6MjA2MjAzMDc3N30.3ihqV2D7BlJhBtL5BPwgf_8CzAN19w604mBwRGPihsQ">
+    </div>
+    <button onclick="testConnection()">Test Connection</button>
+  </div>
+  
+  <div class="container" style="margin-top: 20px;">
+    <h2>Results</h2>
+    <div id="status">Not tested yet</div>
+    <pre id="results"></pre>
+  </div>
+
+  <script>
+    async function testConnection() {
+      const statusElement = document.getElementById('status');
+      const resultsElement = document.getElementById('results');
+      const supabaseUrl = document.getElementById('supabaseUrl').value;
+      const supabaseKey = document.getElementById('supabaseKey').value;
+      
+      statusElement.innerHTML = 'Testing connection...';
+      statusElement.className = '';
+      resultsElement.textContent = '';
+      
+      try {
+        // Initialize Supabase client
+        const supabase = supabase.createClient(supabaseUrl, supabaseKey);
+        
+        // Test connection with a simple query
+        const { data, error } = await supabase.from('users').select('count(*)', { count: 'exact' });
+        
+        if (error) {
+          statusElement.innerHTML = 'Error connecting to Supabase';
+          statusElement.className = 'error';
+          resultsElement.textContent = JSON.stringify(error, null, 2);
+          return;
+        }
+        
+        // Try to get users
+        const { data: users, error: usersError } = await supabase
+          .from('users')
+          .select('id, name, email, role')
+          .limit(5);
+        
+        if (usersError) {
+          statusElement.innerHTML = 'Connected, but error fetching users';
+          statusElement.className = 'error';
+          resultsElement.textContent = JSON.stringify(usersError, null, 2);
+          return;
+        }
+        
+        statusElement.innerHTML = 'Successfully connected to Supabase!';
+        statusElement.className = 'success';
+        
+        const results = {
+          connection: 'Success',
+          count: data,
+          users: users
+        };
+        
+        resultsElement.textContent = JSON.stringify(results, null, 2);
+        
+      } catch (error) {
+        statusElement.innerHTML = 'Unexpected error';
+        statusElement.className = 'error';
+        resultsElement.textContent = JSON.stringify(error, null, 2);
+      }
+    }
+  </script>
+</body>
+</html>

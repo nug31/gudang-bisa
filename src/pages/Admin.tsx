@@ -6,19 +6,23 @@ import { Input } from "../components/ui/Input";
 import { Select } from "../components/ui/Select";
 import { Button } from "../components/ui/Button";
 import { ExportButton } from "../components/ui/ExportButton";
-import { Search, Filter, RefreshCw, ClipboardList } from "lucide-react";
+import { Search, Filter, RefreshCw, ClipboardList, Clock } from "lucide-react";
 import { ItemRequest, User } from "../types";
 import { userApi } from "../services/api";
 import { categories as mockCategories } from "../data/mockData";
+import { formatDistanceToNow } from "date-fns";
 
 export const Admin: React.FC = () => {
-  const { requests, loading } = useRequests();
+  const { requests, loading, refreshRequests, lastRefreshed } = useRequests();
 
   // State for filters
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("pending");
   const [priorityFilter, setPriorityFilter] = useState("all");
   const [sortOrder, setSortOrder] = useState("newest");
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const [requestCount, setRequestCount] = useState<number>(0);
+  const [hasNewData, setHasNewData] = useState<boolean>(false);
 
   // State for users and categories
   const [users, setUsers] = useState<Record<string, User>>({});
@@ -26,6 +30,37 @@ export const Admin: React.FC = () => {
     Record<string, { name: string }>
   >({});
   const [loadingUsers, setLoadingUsers] = useState(true);
+
+  // Check for new data when requests changes
+  useEffect(() => {
+    console.log("Admin requests updated:", requests.length);
+
+    if (requestCount > 0 && requests.length !== requestCount) {
+      console.log("New data detected in Admin!");
+      setHasNewData(true);
+    }
+
+    setRequestCount(requests.length);
+  }, [requests]);
+
+  // Set up polling interval
+  useEffect(() => {
+    // Poll every 5 seconds
+    const interval = setInterval(() => {
+      console.log("Auto-refreshing admin requests...");
+      refreshRequests();
+    }, 5000); // 5 seconds
+
+    return () => clearInterval(interval);
+  }, [refreshRequests]);
+
+  // Handle manual refresh
+  const handleRefresh = async () => {
+    setIsRefreshing(true);
+    await refreshRequests();
+    setHasNewData(false);
+    setIsRefreshing(false);
+  };
 
   // Fetch users for export functionality
   useEffect(() => {
@@ -221,9 +256,41 @@ export const Admin: React.FC = () => {
         {/* Results */}
         <div className="space-y-4">
           <div className="flex justify-between items-center">
-            <h3 className="text-lg font-medium">
-              {filteredRequests.length} Requests
-            </h3>
+            <div className="flex items-center gap-4">
+              <h3 className="text-lg font-medium">
+                {filteredRequests.length} Requests
+              </h3>
+              <div className="flex items-center text-sm text-neutral-500">
+                <Clock className="h-4 w-4 mr-1" />
+                <span>
+                  Updated{" "}
+                  {formatDistanceToNow(lastRefreshed, { addSuffix: true })}
+                </span>
+              </div>
+              <Button
+                variant={hasNewData ? "primary" : "outline"}
+                size="sm"
+                onClick={handleRefresh}
+                disabled={isRefreshing}
+                leftIcon={
+                  <RefreshCw
+                    className={`h-4 w-4 ${
+                      isRefreshing
+                        ? "animate-spin"
+                        : hasNewData
+                        ? "animate-pulse"
+                        : ""
+                    }`}
+                  />
+                }
+              >
+                {isRefreshing
+                  ? "Refreshing..."
+                  : hasNewData
+                  ? "New Data Available!"
+                  : "Refresh"}
+              </Button>
+            </div>
             <ExportButton
               requests={filteredRequests}
               users={users}

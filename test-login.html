@@ -1,92 +1,158 @@
 <!DOCTYPE html>
 <html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Test Login</title>
     <style>
-        body {
-            font-family: Arial, sans-serif;
-            max-width: 500px;
-            margin: 0 auto;
-            padding: 20px;
-        }
-        .form-group {
-            margin-bottom: 15px;
-        }
-        label {
-            display: block;
-            margin-bottom: 5px;
-        }
-        input {
-            width: 100%;
-            padding: 8px;
-            box-sizing: border-box;
-        }
-        button {
-            padding: 10px 15px;
-            background-color: #0077cc;
-            color: white;
-            border: none;
-            cursor: pointer;
-        }
-        .result {
-            margin-top: 20px;
-            padding: 10px;
-            border: 1px solid #ccc;
-            background-color: #f9f9f9;
-            white-space: pre-wrap;
-        }
+      body {
+        font-family: Arial, sans-serif;
+        max-width: 500px;
+        margin: 0 auto;
+        padding: 20px;
+      }
+      .form-group {
+        margin-bottom: 15px;
+      }
+      label {
+        display: block;
+        margin-bottom: 5px;
+      }
+      input {
+        width: 100%;
+        padding: 8px;
+        box-sizing: border-box;
+      }
+      button {
+        padding: 10px 15px;
+        background-color: #0077cc;
+        color: white;
+        border: none;
+        cursor: pointer;
+        margin-right: 10px;
+      }
+      .result {
+        margin-top: 20px;
+        padding: 10px;
+        border: 1px solid #ccc;
+        background-color: #f9f9f9;
+        white-space: pre-wrap;
+      }
     </style>
-</head>
-<body>
+  </head>
+  <body>
     <h1>Test Login</h1>
-    
+
     <div class="form-group">
-        <label for="email">Email:</label>
-        <input type="email" id="email" value="admin@example.com">
+      <label for="email">Email:</label>
+      <input type="email" id="email" value="admin@gudangmitra.com" />
     </div>
-    
+
     <div class="form-group">
-        <label for="password">Password:</label>
-        <input type="password" id="password" value="password">
+      <label for="password">Password:</label>
+      <input type="password" id="password" value="password" />
     </div>
-    
+
     <button onclick="testLogin()">Login</button>
-    
+    <button onclick="testApi()">Test API</button>
+    <button onclick="checkLocalStorage()">Check localStorage</button>
+    <button onclick="clearLocalStorage()">Clear localStorage</button>
+
     <div class="result" id="result"></div>
-    
+
     <script>
-        async function testLogin() {
-            const email = document.getElementById('email').value;
-            const password = document.getElementById('password').value;
-            const resultElement = document.getElementById('result');
-            
-            resultElement.textContent = 'Sending login request...';
-            
-            try {
-                const response = await fetch('http://localhost:3001/api/login', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                    },
-                    body: JSON.stringify({ email, password }),
-                });
-                
-                resultElement.textContent = `Response status: ${response.status}\n`;
-                
-                const data = await response.text();
-                resultElement.textContent += `Response data: ${data}`;
-                
-                if (response.ok) {
-                    resultElement.textContent += '\n\nLogin successful!';
-                } else {
-                    resultElement.textContent += '\n\nLogin failed.';
-                }
-            } catch (error) {
-                resultElement.textContent = `Error: ${error.message}`;
+      async function testLogin() {
+        const email = document.getElementById("email").value;
+        const password = document.getElementById("password").value;
+        const resultElement = document.getElementById("result");
+
+        resultElement.textContent = "Sending login request...";
+
+        try {
+          const response = await fetch("/api/auth/login", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({ email, password }),
+          });
+
+          resultElement.textContent = `Response status: ${response.status}\n`;
+
+          try {
+            const data = await response.json();
+            resultElement.textContent += `Response data: ${JSON.stringify(
+              data,
+              null,
+              2
+            )}`;
+
+            if (response.ok) {
+              // Store user in localStorage
+              localStorage.setItem("user", JSON.stringify(data));
+              resultElement.textContent +=
+                "\n\nLogin successful! User data stored in localStorage.";
+            } else {
+              resultElement.textContent += "\n\nLogin failed.";
             }
+          } catch (e) {
+            const text = await response.text();
+            resultElement.textContent += `\nCould not parse JSON. Raw response: ${text}`;
+          }
+        } catch (error) {
+          resultElement.textContent = `Error: ${error.message}`;
         }
+      }
+
+      async function testApi() {
+        const resultElement = document.getElementById("result");
+        resultElement.textContent = "Testing API...";
+
+        try {
+          const response = await fetch("/api/test");
+          resultElement.textContent = `API Test Response status: ${response.status}\n`;
+
+          try {
+            const data = await response.json();
+            resultElement.textContent += `API Test Response data: ${JSON.stringify(
+              data,
+              null,
+              2
+            )}`;
+          } catch (e) {
+            const text = await response.text();
+            resultElement.textContent += `\nCould not parse JSON. Raw response: ${text}`;
+          }
+        } catch (error) {
+          resultElement.textContent = `Error: ${error.message}`;
+        }
+      }
+
+      function checkLocalStorage() {
+        const resultElement = document.getElementById("result");
+        const user = localStorage.getItem("user");
+
+        if (user) {
+          try {
+            const userData = JSON.parse(user);
+            resultElement.textContent = `User in localStorage: ${JSON.stringify(
+              userData,
+              null,
+              2
+            )}`;
+          } catch (e) {
+            resultElement.textContent = `Error parsing user data: ${e.message}\nRaw data: ${user}`;
+          }
+        } else {
+          resultElement.textContent = "No user data in localStorage";
+        }
+      }
+
+      function clearLocalStorage() {
+        localStorage.removeItem("user");
+        const resultElement = document.getElementById("result");
+        resultElement.textContent = "localStorage cleared";
+      }
     </script>
-</body>
+  </body>
 </html>

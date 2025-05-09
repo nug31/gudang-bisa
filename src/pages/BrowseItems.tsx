@@ -5,7 +5,7 @@ import { Card, CardContent } from "../components/ui/Card";
 import { Button } from "../components/ui/Button";
 import { Search, Filter, AlertTriangle } from "lucide-react";
 import { InventoryItem } from "../types/inventory";
-import { useCategories } from "../hooks";
+import { useCategories } from "../hooks/useCategories";
 
 export const BrowseItems = () => {
   const navigate = useNavigate();
@@ -17,7 +17,7 @@ export const BrowseItems = () => {
   const [searchTerm, setSearchTerm] = useState("");
   const [selectedCategory, setSelectedCategory] = useState("all");
 
-  const fetchInventoryItems = async (categoryId = null, retryCount = 0) => {
+  const fetchInventoryItems = async (retryCount = 0) => {
     try {
       setLoading(true);
       setError(null);
@@ -26,100 +26,90 @@ export const BrowseItems = () => {
         `Fetching inventory items in BrowseItems (attempt ${retryCount + 1})...`
       );
 
-      // Prepare request body with optional category filter
-      const requestBody = {
-        action: "getAll",
-      };
+      // Simplified approach - just try the DB endpoint directly
+      console.log("Fetching inventory items from DB endpoint...");
 
-      // Add category filter if not "all"
-      if (categoryId && categoryId !== "all") {
-        requestBody.categoryId = categoryId;
-      }
-
-      // Try the API endpoint first
-      const response = await fetch("/api/inventory", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify(requestBody),
-      });
-
-      if (!response.ok) {
-        console.log(`API endpoint failed, trying fallback to /db/inventory...`);
-
-        // Try fallback to db endpoint if API endpoint fails
-        const fallbackResponse = await fetch("/db/inventory", {
+      try {
+        // Make the request to the DB endpoint
+        const response = await fetch("/db/inventory", {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
           },
-          body: JSON.stringify(requestBody),
+          body: JSON.stringify({
+            action: "getAll",
+          }),
         });
 
-        if (!fallbackResponse.ok) {
-          // If we get a server error and haven't retried too many times, try again
-          if (fallbackResponse.status >= 500 && retryCount < 2) {
-            console.log(`Server error, retrying (${retryCount + 1}/3)...`);
-            setLoading(false);
-            // Wait a bit before retrying
-            await new Promise((resolve) => setTimeout(resolve, 1000));
-            return fetchInventoryItems(categoryId, retryCount + 1);
-          }
-
-          throw new Error("Failed to fetch inventory items");
+        // Check if the response is OK
+        if (!response.ok) {
+          console.error(`DB endpoint failed with status ${response.status}`);
+          throw new Error(
+            `Server returned ${response.status}: ${response.statusText}`
+          );
         }
 
-        // Try to parse the fallback response
+        // Get the response text
+        const text = await response.text();
+
+        // Check if the response is empty
+        if (!text || text.trim() === "") {
+          console.error("Empty response from server");
+          throw new Error("Server returned an empty response");
+        }
+
+        // Parse the JSON response
+        let data;
         try {
-          const text = await fallbackResponse.text();
-          const data = text ? JSON.parse(text) : [];
-          console.log(
-            `Successfully fetched ${data.length} inventory items from fallback in BrowseItems`
-          );
-          setItems(data);
-          setFilteredItems(data);
-          setError(null);
-          setLoading(false);
-          return;
+          data = JSON.parse(text);
         } catch (parseError) {
-          console.error("Error parsing fallback response:", parseError);
+          console.error("Error parsing JSON response:", parseError);
           throw new Error("Invalid response format from server");
         }
-      }
 
-      // Try to parse the response
-      let data;
-      try {
-        const text = await response.text();
-        data = text ? JSON.parse(text) : [];
-      } catch (parseError) {
-        console.error("Error parsing response:", parseError);
+        // Check if the data is an array
+        if (!Array.isArray(data)) {
+          console.error("Response is not an array:", data);
+          throw new Error("Invalid data format from server");
+        }
 
-        // If we can't parse the response and haven't retried too many times, try again
+        // Log success
+        console.log(`Successfully fetched ${data.length} inventory items`);
+
+        // Log the first few items for debugging
+        if (data.length > 0) {
+          console.log(
+            "First 3 items:",
+            data.slice(0, 3).map((item) => item.name)
+          );
+        } else {
+          console.log("No items returned from server");
+        }
+
+        // Update state with the fetched data
+        setItems(data);
+        setFilteredItems(data);
+        setError(null);
+
+        return;
+      } catch (error) {
+        console.error("Error fetching inventory items:", error);
+
+        // If we haven't retried too many times, try again
         if (retryCount < 2) {
-          console.log(`Parse error, retrying (${retryCount + 1}/3)...`);
-          setLoading(false);
-          // Wait a bit before retrying
-          await new Promise((resolve) => setTimeout(resolve, 1000));
+          console.log(`Fetch failed, retrying (${retryCount + 1}/3)...`);
+          // Wait a bit longer before retrying
+          await new Promise((resolve) => setTimeout(resolve, 2000));
           return fetchInventoryItems(retryCount + 1);
         }
 
-        throw new Error("Invalid response format from server");
-      }
+        // If all retries failed, show error and use mock data as fallback
+        setError(
+          "Failed to load inventory items. Please check your connection and try again."
+        );
 
-      console.log(
-        `Successfully fetched ${data.length} inventory items in BrowseItems`
-      );
-      setItems(data);
-      setFilteredItems(data);
-      setError(null);
-    } catch (err) {
-      console.error("Error fetching inventory items:", err);
-
-      // Try to use mock data as a last resort
-      try {
-        console.log("Attempting to use mock data...");
+        // Use mock data as a fallback
+        console.log("Using mock data as fallback");
         const mockData = [
           {
             id: "1",
@@ -195,26 +185,26 @@ export const BrowseItems = () => {
 
         setItems(mockData);
         setFilteredItems(mockData);
-        setError(null);
-      } catch (mockError) {
-        console.error("Error using mock data:", mockError);
-        setError("Failed to load inventory items. Please try again later.");
       }
     } finally {
       setLoading(false);
     }
   };
 
-  // Fetch items when component mounts or when category changes
   useEffect(() => {
-    fetchInventoryItems(selectedCategory);
-  }, [selectedCategory]);
+    fetchInventoryItems();
+  }, []);
 
-  // Filter items when search term changes
+  // Filter items when search term or category changes
   useEffect(() => {
     let result = items;
 
-    // Filter by search term only (category filtering is done on the server)
+    // Filter by category
+    if (selectedCategory !== "all") {
+      result = result.filter((item) => item.categoryId === selectedCategory);
+    }
+
+    // Filter by search term
     if (searchTerm) {
       const term = searchTerm.toLowerCase();
       result = result.filter(
@@ -226,11 +216,40 @@ export const BrowseItems = () => {
     }
 
     setFilteredItems(result);
-  }, [items, searchTerm]);
+  }, [items, searchTerm, selectedCategory]);
 
   const handleRequestItem = (item: InventoryItem) => {
+    // Log the item details before navigating
+    console.log("Requesting item:", {
+      id: item.id,
+      name: item.name,
+      type: typeof item.id,
+      stringified: String(item.id),
+    });
+
+    // Create a direct request item object
+    const requestItem = {
+      id: String(item.id),
+      name: item.name,
+      quantity: 1,
+      available: item.quantityAvailable,
+    };
+
+    // Store the request item in localStorage so it persists across page navigation
+    localStorage.setItem("pendingRequestItem", JSON.stringify(requestItem));
+
     // Navigate to the new request page with the item pre-selected
-    navigate(`/requests/new?itemId=${item.id}`);
+    // Ensure the item ID is properly encoded in the URL
+    const url = `/requests/new?itemId=${encodeURIComponent(String(item.id))}`;
+    console.log("Navigating to:", url);
+
+    // Use navigate with state to ensure the item data is available immediately
+    navigate(url, {
+      state: {
+        selectedItem: item,
+        requestItem: requestItem,
+      },
+    });
   };
 
   return (

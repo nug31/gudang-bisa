@@ -54,174 +54,109 @@ export const InventoryProvider: React.FC<InventoryProviderProps> = ({
 
     try {
       console.log(`Fetching inventory items (attempt ${retryCount + 1})...`);
+      console.log(
+        "Using Neon PostgreSQL database directly via /db/inventory endpoint"
+      );
 
-      // Use the correct API endpoint
-      const response = await fetch("/.netlify/functions/inventory", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          action: "getAll",
-          categoryId,
-        }),
-      });
-
-      // Check if the response is ok before trying to parse it
-      if (!response.ok) {
-        let errorMessage = "Failed to fetch inventory items";
-        try {
-          const errorData = await response.json();
-          errorMessage = errorData.message || errorMessage;
-        } catch (parseError) {
-          console.error("Error parsing error response:", parseError);
-        }
-
-        // If we get a server error and haven't retried too many times, try again
-        if (response.status >= 500 && retryCount < 2) {
-          console.log(`Server error, retrying (${retryCount + 1}/3)...`);
-          setLoading(false);
-          // Wait a bit before retrying
-          await new Promise((resolve) => setTimeout(resolve, 1000));
-          return fetchInventoryItems(categoryId, retryCount + 1);
-        }
-
-        // Try fallback to db endpoint if API endpoint fails
-        if (retryCount === 0) {
-          console.log(
-            "API endpoint failed, trying fallback to /.netlify/functions/db-inventory..."
-          );
-          const fallbackResponse = await fetch(
-            "/.netlify/functions/db-inventory",
-            {
-              method: "POST",
-              headers: {
-                "Content-Type": "application/json",
-              },
-              body: JSON.stringify({
-                action: "getAll",
-                categoryId,
-              }),
-            }
-          );
-
-          if (fallbackResponse.ok) {
-            const text = await fallbackResponse.text();
-            const data = text ? JSON.parse(text) : [];
-            console.log(
-              `Successfully fetched ${data.length} inventory items from fallback`
-            );
-            setInventoryItems(Array.isArray(data) ? data : []);
-            setLoading(false);
-            return;
-          } else {
-            console.log("Fallback also failed");
-          }
-        }
-
-        throw new Error(errorMessage);
-      }
-
-      // Try to parse the response, handle empty responses
-      let data = [];
+      // First try the db endpoint directly
       try {
-        const text = await response.text();
-        data = text ? JSON.parse(text) : [];
-      } catch (parseError) {
-        console.error("Error parsing response:", parseError);
+        console.log("Trying to fetch inventory items from /db/inventory...");
+        const dbResponse = await fetch("/db/inventory", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            action: "getAll",
+            categoryId,
+          }),
+        });
 
-        // If we can't parse the response and haven't retried too many times, try again
-        if (retryCount < 2) {
-          console.log(`Parse error, retrying (${retryCount + 1}/3)...`);
+        if (dbResponse.ok) {
+          const text = await dbResponse.text();
+          if (!text) {
+            console.log("Empty response from DB endpoint");
+            throw new Error("Empty response from server");
+          }
+
+          const data = JSON.parse(text);
+          console.log(
+            `Successfully fetched ${data.length} inventory items from Neon PostgreSQL`
+          );
+
+          if (data.length > 0) {
+            console.log("First item:", data[0].name);
+            console.log("Last item:", data[data.length - 1].name);
+          } else {
+            console.log("No items returned from database");
+          }
+
+          setInventoryItems(Array.isArray(data) ? data : []);
           setLoading(false);
-          // Wait a bit before retrying
-          await new Promise((resolve) => setTimeout(resolve, 1000));
+          return;
+        } else {
+          console.log("DB endpoint failed, trying API endpoint...");
+        }
+      } catch (dbError) {
+        console.error("Error fetching from /db/inventory:", dbError);
+      }
+
+      // Try the API endpoint as fallback
+      try {
+        console.log("Trying to fetch inventory items from /api/inventory...");
+        const apiResponse = await fetch("/api/inventory", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            action: "getAll",
+            categoryId,
+          }),
+        });
+
+        if (apiResponse.ok) {
+          const text = await apiResponse.text();
+          if (!text) {
+            console.log("Empty response from API endpoint");
+            throw new Error("Empty response from server");
+          }
+
+          const data = JSON.parse(text);
+          console.log(
+            `Successfully fetched ${data.length} inventory items from API endpoint`
+          );
+
+          setInventoryItems(Array.isArray(data) ? data : []);
+          setLoading(false);
+          return;
+        } else {
+          console.log(`API endpoint failed with status ${apiResponse.status}`);
+          throw new Error(
+            `API request failed with status ${apiResponse.status}`
+          );
+        }
+      } catch (apiError) {
+        console.error("Error fetching from /api/inventory:", apiError);
+
+        // If we haven't retried too many times, try again
+        if (retryCount < 3) {
+          console.log(
+            `All endpoints failed, retrying (${retryCount + 1}/4)...`
+          );
+          setLoading(false);
+          // Wait a bit longer before retrying
+          await new Promise((resolve) => setTimeout(resolve, 2000));
           return fetchInventoryItems(categoryId, retryCount + 1);
         }
 
-        throw new Error("Invalid response format from server");
+        throw new Error("All endpoints failed after multiple retries");
       }
-
-      console.log(`Successfully fetched ${data.length} inventory items`);
-      setInventoryItems(Array.isArray(data) ? data : []);
     } catch (err) {
       setError(
         err instanceof Error ? err.message : "An unknown error occurred"
       );
       console.error("Error fetching inventory items:", err);
-
-      // Try to use mock data if available
-      try {
-        console.log("Attempting to use mock data...");
-        const mockData = [
-          {
-            id: "1",
-            name: "Ballpoint Pen",
-            description: "Blue ballpoint pen",
-            categoryId: "1",
-            categoryName: "Office",
-            sku: "PEN-001",
-            quantityAvailable: 100,
-            quantityReserved: 10,
-            unitPrice: 1.99,
-            location: "Shelf A1",
-            imageUrl: "/img/items/pen.jpg",
-            createdAt: "2023-01-01T00:00:00Z",
-          },
-          {
-            id: "2",
-            name: "Notebook",
-            description: "A5 lined notebook",
-            categoryId: "1",
-            categoryName: "Office",
-            sku: "NB-001",
-            quantityAvailable: 50,
-            quantityReserved: 5,
-            unitPrice: 4.99,
-            location: "Shelf A2",
-            imageUrl: "/img/items/notebook.jpg",
-            createdAt: "2023-01-01T00:00:00Z",
-          },
-          {
-            id: "3",
-            name: "Cleaning Spray",
-            description: "All-purpose cleaning spray",
-            categoryId: "2",
-            categoryName: "Cleaning",
-            sku: "CL-001",
-            quantityAvailable: 30,
-            quantityReserved: 2,
-            unitPrice: 3.49,
-            location: "Shelf B1",
-            imageUrl: "/img/items/spray.jpg",
-            createdAt: "2023-01-01T00:00:00Z",
-          },
-        ];
-
-        // Filter by category if needed
-        let filteredItems = mockData;
-        if (categoryId) {
-          filteredItems = mockData.filter(
-            (item) => item.categoryId === categoryId
-          );
-        }
-
-        setInventoryItems(filteredItems);
-        setError(null); // Clear error since we have fallback data
-      } catch (mockError) {
-        console.error("Error using mock data:", mockError);
-        // Set empty array on error to prevent UI issues
-        setInventoryItems([]);
-      }
-
-      // If we haven't retried too many times, try again
-      if (retryCount < 2) {
-        console.log(`Error occurred, retrying (${retryCount + 1}/3)...`);
-        setLoading(false);
-        // Wait a bit before retrying
-        await new Promise((resolve) => setTimeout(resolve, 1000));
-        return fetchInventoryItems(categoryId, retryCount + 1);
-      }
     } finally {
       setLoading(false);
     }
@@ -234,78 +169,100 @@ export const InventoryProvider: React.FC<InventoryProviderProps> = ({
     setError(null);
 
     try {
-      // Try the API endpoint first
-      const response = await fetch("/.netlify/functions/inventory", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          action: "getById",
-          id,
-        }),
-      });
+      console.log(`Fetching inventory item with ID: ${id}`);
 
-      // Check if the response is ok before trying to parse it
-      if (!response.ok) {
-        let errorMessage = "Failed to fetch inventory item";
-        try {
-          const errorData = await response.json();
-          errorMessage = errorData.message || errorMessage;
-        } catch (parseError) {
-          console.error("Error parsing error response:", parseError);
-        }
-
-        // Try fallback to db endpoint if API endpoint fails
-        console.log(
-          "API endpoint failed, trying fallback to /.netlify/functions/db-inventory..."
-        );
-        const fallbackResponse = await fetch(
-          "/.netlify/functions/db-inventory",
-          {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-            },
-            body: JSON.stringify({
-              action: "getById",
-              id,
-            }),
-          }
-        );
-
-        if (fallbackResponse.ok) {
-          const text = await fallbackResponse.text();
-          if (!text) {
-            throw new Error("Empty response from server");
-          }
-          return JSON.parse(text);
-        }
-
-        throw new Error(errorMessage);
-      }
-
-      // Try to parse the response, handle empty responses
+      // First try the db endpoint directly
       try {
-        const text = await response.text();
-        if (!text) {
-          throw new Error("Empty response from server");
+        console.log("Trying to fetch inventory item from /db/inventory...");
+        const dbResponse = await fetch("/db/inventory", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            action: "getById",
+            id,
+          }),
+        });
+
+        if (dbResponse.ok) {
+          const text = await dbResponse.text();
+          if (!text) {
+            console.log("Empty response from DB endpoint");
+          } else {
+            const item = JSON.parse(text);
+            console.log(
+              "Successfully fetched inventory item from DB endpoint:",
+              item.name
+            );
+            setLoading(false);
+            return item;
+          }
+        } else {
+          console.log("DB endpoint failed, trying API endpoint...");
         }
-        return JSON.parse(text);
-      } catch (parseError) {
-        console.error("Error parsing response:", parseError);
-        throw new Error("Invalid response format from server");
+      } catch (dbError) {
+        console.error("Error fetching from /db/inventory:", dbError);
       }
+
+      // Try the API endpoint as fallback
+      try {
+        console.log("Trying to fetch inventory item from /api/inventory...");
+        const apiResponse = await fetch("/api/inventory", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            action: "getById",
+            id,
+          }),
+        });
+
+        if (apiResponse.ok) {
+          const text = await apiResponse.text();
+          if (!text) {
+            console.log("Empty response from API endpoint");
+          } else {
+            const item = JSON.parse(text);
+            console.log(
+              "Successfully fetched inventory item from API endpoint:",
+              item.name
+            );
+            setLoading(false);
+            return item;
+          }
+        } else {
+          console.log(`API endpoint failed with status ${apiResponse.status}`);
+          throw new Error(
+            `API request failed with status ${apiResponse.status}`
+          );
+        }
+      } catch (apiError) {
+        console.error("Error fetching from /api/inventory:", apiError);
+      }
+
+      // If we get here, both endpoints failed, try to find the item in the current inventory items
+      const item = inventoryItems.find((item) => item.id === id);
+      if (item) {
+        console.log("Found item in current inventory items:", item.name);
+        return item;
+      }
+
+      throw new Error("Item not found in any data source");
     } catch (err) {
       setError(
         err instanceof Error ? err.message : "An unknown error occurred"
       );
       console.error("Error fetching inventory item:", err);
 
-      // Try to find the item in the current inventory items
+      // Last resort - try to find the item in the current inventory items
       const item = inventoryItems.find((item) => item.id === id);
       if (item) {
-        console.log("Found item in current inventory items:", item);
+        console.log(
+          "Found item in current inventory items as last resort:",
+          item.name
+        );
         return item;
       }
 
@@ -329,8 +286,11 @@ export const InventoryProvider: React.FC<InventoryProviderProps> = ({
         );
       }
 
-      // Try the API endpoint first
-      const response = await fetch("/.netlify/functions/inventory", {
+      console.log("Creating inventory item using Neon PostgreSQL:", item);
+      console.log("Using /db/inventory endpoint directly");
+
+      // Use the /db/inventory endpoint which connects to Neon PostgreSQL
+      const response = await fetch("/db/inventory", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -344,47 +304,13 @@ export const InventoryProvider: React.FC<InventoryProviderProps> = ({
       });
 
       if (!response.ok) {
-        let errorMessage = "Failed to create inventory item";
-        try {
-          const errorData = await response.json();
-          errorMessage = errorData.message || errorMessage;
-        } catch (parseError) {
-          console.error("Error parsing error response:", parseError);
-        }
-
-        // Try fallback to db endpoint if API endpoint fails
-        console.log(
-          "API endpoint failed, trying fallback to /.netlify/functions/db-inventory..."
+        throw new Error(
+          `Failed to create inventory item: ${response.status} ${response.statusText}`
         );
-        const fallbackResponse = await fetch(
-          "/.netlify/functions/db-inventory",
-          {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-            },
-            body: JSON.stringify({
-              action: "create",
-              ...item,
-              userId: user?.id,
-              userRole: user?.role,
-            }),
-          }
-        );
-
-        if (!fallbackResponse.ok) {
-          throw new Error(errorMessage);
-        }
-
-        const newItem = await fallbackResponse.json();
-
-        // Update local state
-        setInventoryItems((prev) => [...prev, newItem]);
-
-        return newItem;
       }
 
       const newItem = await response.json();
+      console.log("Successfully created inventory item:", newItem);
 
       // Update local state
       setInventoryItems((prev) => [...prev, newItem]);
@@ -395,36 +321,7 @@ export const InventoryProvider: React.FC<InventoryProviderProps> = ({
         err instanceof Error ? err.message : "An unknown error occurred"
       );
       console.error("Error creating inventory item:", err);
-
-      // Create a mock item with a UUID as fallback
-      try {
-        console.log("Creating mock item as fallback...");
-        const mockItem: InventoryItem = {
-          id: uuidv4(),
-          name: item.name,
-          description: item.description || "",
-          categoryId: item.categoryId,
-          categoryName: item.categoryName || "Unknown",
-          sku: item.sku || "",
-          quantityAvailable: item.quantityAvailable || 0,
-          quantityReserved: item.quantityReserved || 0,
-          unitPrice: item.unitPrice || 0,
-          location: item.location || "",
-          imageUrl: item.imageUrl || "",
-          createdAt: new Date().toISOString(),
-        };
-
-        // Update local state
-        setInventoryItems((prev) => [...prev, mockItem]);
-
-        // Clear error since we have fallback data
-        setError(null);
-
-        return mockItem;
-      } catch (mockError) {
-        console.error("Error creating mock item:", mockError);
-        throw err;
-      }
+      throw err;
     } finally {
       setLoading(false);
     }
@@ -444,8 +341,11 @@ export const InventoryProvider: React.FC<InventoryProviderProps> = ({
         );
       }
 
-      // Try the API endpoint first
-      const response = await fetch("/.netlify/functions/inventory", {
+      console.log("Updating inventory item using Neon PostgreSQL:", item);
+      console.log("Using /db/inventory endpoint directly");
+
+      // Use the /db/inventory endpoint which connects to Neon PostgreSQL
+      const response = await fetch("/db/inventory", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -457,47 +357,13 @@ export const InventoryProvider: React.FC<InventoryProviderProps> = ({
       });
 
       if (!response.ok) {
-        let errorMessage = "Failed to update inventory item";
-        try {
-          const errorData = await response.json();
-          errorMessage = errorData.message || errorMessage;
-        } catch (parseError) {
-          console.error("Error parsing error response:", parseError);
-        }
-
-        // Try fallback to db endpoint if API endpoint fails
-        console.log(
-          "API endpoint failed, trying fallback to /.netlify/functions/db-inventory..."
+        throw new Error(
+          `Failed to update inventory item: ${response.status} ${response.statusText}`
         );
-        const fallbackResponse = await fetch(
-          "/.netlify/functions/db-inventory",
-          {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-            },
-            body: JSON.stringify({
-              action: "update",
-              ...item,
-            }),
-          }
-        );
-
-        if (!fallbackResponse.ok) {
-          throw new Error(errorMessage);
-        }
-
-        const updatedItem = await fallbackResponse.json();
-
-        // Update local state
-        setInventoryItems((prev) =>
-          prev.map((i) => (i.id === updatedItem.id ? updatedItem : i))
-        );
-
-        return updatedItem;
       }
 
       const updatedItem = await response.json();
+      console.log("Successfully updated inventory item:", updatedItem);
 
       // Update local state
       setInventoryItems((prev) =>
@@ -511,39 +377,15 @@ export const InventoryProvider: React.FC<InventoryProviderProps> = ({
       );
       console.error("Error updating inventory item:", err);
 
-      // Update the item locally as a fallback
-      try {
-        console.log("Updating item locally as fallback...");
-
-        // Find the existing item
-        const existingItem = inventoryItems.find((i) => i.id === item.id);
-
-        if (!existingItem) {
-          throw new Error("Item not found");
-        }
-
-        // Create updated item by merging existing item with updates
-        const updatedItem: InventoryItem = {
-          ...existingItem,
-          ...item,
-          // Ensure these fields are present
-          name: item.name || existingItem.name,
-          categoryId: item.categoryId || existingItem.categoryId,
-        };
-
-        // Update local state
-        setInventoryItems((prev) =>
-          prev.map((i) => (i.id === updatedItem.id ? updatedItem : i))
-        );
-
-        // Clear error since we have fallback data
-        setError(null);
-
-        return updatedItem;
-      } catch (mockError) {
-        console.error("Error updating item locally:", mockError);
+      // Try to find the existing item
+      const existingItem = inventoryItems.find((i) => i.id === item.id);
+      if (!existingItem) {
         throw err;
       }
+
+      // Log the error but don't throw it
+      console.warn("Update failed on server, but item exists in local state");
+      return existingItem;
     } finally {
       setLoading(false);
     }
@@ -561,8 +403,11 @@ export const InventoryProvider: React.FC<InventoryProviderProps> = ({
         );
       }
 
-      // Try the API endpoint first
-      const response = await fetch("/.netlify/functions/inventory", {
+      console.log("Deleting inventory item using Neon PostgreSQL, ID:", id);
+      console.log("Using /db/inventory endpoint directly");
+
+      // Use the /db/inventory endpoint which connects to Neon PostgreSQL
+      const response = await fetch("/db/inventory", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -574,36 +419,12 @@ export const InventoryProvider: React.FC<InventoryProviderProps> = ({
       });
 
       if (!response.ok) {
-        let errorMessage = "Failed to delete inventory item";
-        try {
-          const errorData = await response.json();
-          errorMessage = errorData.message || errorMessage;
-        } catch (parseError) {
-          console.error("Error parsing error response:", parseError);
-        }
-
-        // Try fallback to db endpoint if API endpoint fails
-        console.log(
-          "API endpoint failed, trying fallback to /.netlify/functions/db-inventory..."
+        throw new Error(
+          `Failed to delete inventory item: ${response.status} ${response.statusText}`
         );
-        const fallbackResponse = await fetch(
-          "/.netlify/functions/db-inventory",
-          {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-            },
-            body: JSON.stringify({
-              action: "delete",
-              id,
-            }),
-          }
-        );
-
-        if (!fallbackResponse.ok) {
-          throw new Error(errorMessage);
-        }
       }
+
+      console.log("Successfully deleted inventory item");
 
       // Update local state
       setInventoryItems((prev) => prev.filter((i) => i.id !== id));
@@ -615,21 +436,13 @@ export const InventoryProvider: React.FC<InventoryProviderProps> = ({
       );
       console.error("Error deleting inventory item:", err);
 
-      // Delete the item locally as a fallback
-      try {
-        console.log("Deleting item locally as fallback...");
+      // Update local state anyway to maintain UI consistency
+      setInventoryItems((prev) => prev.filter((i) => i.id !== id));
+      console.warn(
+        "Delete failed on server, but item removed from local state"
+      );
 
-        // Update local state
-        setInventoryItems((prev) => prev.filter((i) => i.id !== id));
-
-        // Clear error since we handled it locally
-        setError(null);
-
-        return true;
-      } catch (mockError) {
-        console.error("Error deleting item locally:", mockError);
-        return false;
-      }
+      return false;
     } finally {
       setLoading(false);
     }

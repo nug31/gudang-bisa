@@ -99,13 +99,23 @@ export const RequestDetail: React.FC<RequestDetailProps> = ({
   };
 
   const handleApprove = async () => {
-    if (!user || (user.role !== "admin" && user.role !== "manager")) return;
+    // More robust role check with case insensitive comparison
+    const userRole = user?.role?.toLowerCase() || '';
+    const isAdminOrManager = userRole === 'admin' || userRole === 'manager';
+    
+    console.log("Approving request - User:", user);
+    console.log("User role:", userRole, "Has permission:", isAdminOrManager);
+    
+    if (!user || !isAdminOrManager) {
+      console.error("Permission denied: User is not admin or manager");
+      return;
+    }
 
     console.log("Approving request:", request.id);
 
     const updatedRequest = {
       ...request,
-      status: "approved",
+      status: "approved" as "draft" | "pending" | "approved" | "rejected" | "fulfilled",
       approvedAt: new Date().toISOString(),
       approvedBy: user.id,
     };
@@ -125,18 +135,23 @@ export const RequestDetail: React.FC<RequestDetailProps> = ({
   };
 
   const handleReject = async () => {
-    if (
-      !user ||
-      (user.role !== "admin" && user.role !== "manager") ||
-      !rejectionReason.trim()
-    )
+    // More robust role check with case insensitive comparison
+    const userRole = user?.role?.toLowerCase() || '';
+    const isAdminOrManager = userRole === 'admin' || userRole === 'manager';
+    
+    console.log("Rejecting request - User:", user);
+    console.log("User role:", userRole, "Has permission:", isAdminOrManager);
+    
+    if (!user || !isAdminOrManager || !rejectionReason.trim()) {
+      console.error("Permission denied or missing rejection reason");
       return;
+    }
 
     console.log("Rejecting request:", request.id);
 
     const updatedRequest = {
       ...request,
-      status: "rejected",
+      status: "rejected" as "draft" | "pending" | "approved" | "rejected" | "fulfilled",
       rejectedAt: new Date().toISOString(),
       rejectedBy: user.id,
       rejectionReason: rejectionReason,
@@ -160,13 +175,23 @@ export const RequestDetail: React.FC<RequestDetailProps> = ({
   };
 
   const handleFulfill = async () => {
-    if (!user || (user.role !== "admin" && user.role !== "manager")) return;
+    // More robust role check with case insensitive comparison
+    const userRole = user?.role?.toLowerCase() || '';
+    const isAdminOrManager = userRole === 'admin' || userRole === 'manager';
+    
+    console.log("Fulfilling request - User:", user);
+    console.log("User role:", userRole, "Has permission:", isAdminOrManager);
+    
+    if (!user || !isAdminOrManager) {
+      console.error("Permission denied: User is not admin or manager");
+      return;
+    }
 
     console.log("Fulfilling request:", request.id);
 
     const updatedRequest = {
       ...request,
-      status: "fulfilled",
+      status: "fulfilled" as "draft" | "pending" | "approved" | "rejected" | "fulfilled",
       fulfillmentDate: new Date().toISOString(),
     };
 
@@ -192,8 +217,10 @@ export const RequestDetail: React.FC<RequestDetailProps> = ({
   const canEdit =
     user?.id === request.userId &&
     ["draft", "pending"].includes(request.status);
-  const isAdmin = user?.role === "admin";
-  const isManager = user?.role === "manager";
+  // More robust role checks with case insensitive comparison
+  const userRole = user?.role?.toLowerCase() || '';
+  const isAdmin = userRole === 'admin';
+  const isManager = userRole === 'manager';
   const isAdminOrManager = isAdmin || isManager;
   const isPending = request.status === "pending";
   const isApproved = request.status === "approved";
@@ -206,9 +233,11 @@ export const RequestDetail: React.FC<RequestDetailProps> = ({
             <CardTitle className="text-2xl">{request.title}</CardTitle>
             <p className="text-neutral-500 mt-1">
               Submitted by {requestUser?.name} •{" "}
-              {formatDistanceToNow(new Date(request.createdAt), {
-                addSuffix: true,
-              })}
+              {request.createdAt
+                ? formatDistanceToNow(new Date(request.createdAt), {
+                    addSuffix: true,
+                  })
+                : "recently"}
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
@@ -249,7 +278,9 @@ export const RequestDetail: React.FC<RequestDetailProps> = ({
                     <Calendar className="h-5 w-5 text-neutral-500 mr-2" />
                     <span className="text-sm text-neutral-700">
                       <span className="font-medium mr-2">Needed By:</span>
-                      {format(new Date(request.fulfillmentDate), "PPP")}
+                      {request.fulfillmentDate
+                        ? format(new Date(request.fulfillmentDate), "PPP")
+                        : "Unknown date"}
                     </span>
                   </div>
                 )}
@@ -264,7 +295,9 @@ export const RequestDetail: React.FC<RequestDetailProps> = ({
                   <Clock className="h-5 w-5 text-neutral-500 mr-2" />
                   <span className="text-sm text-neutral-700">
                     <span className="font-medium mr-2">Created:</span>
-                    {format(new Date(request.createdAt), "PPP")}
+                    {request.createdAt
+                      ? format(new Date(request.createdAt), "PPP")
+                      : "Unknown date"}
                   </span>
                 </div>
 
@@ -282,7 +315,9 @@ export const RequestDetail: React.FC<RequestDetailProps> = ({
                     <span className="text-sm text-neutral-700">
                       <span className="font-medium mr-2">Approved By:</span>
                       {approver.name} on{" "}
-                      {format(new Date(request.approvedAt), "PPP")}
+                      {request.approvedAt
+                        ? format(new Date(request.approvedAt), "PPP")
+                        : "Unknown date"}
                     </span>
                   </div>
                 )}
@@ -294,7 +329,9 @@ export const RequestDetail: React.FC<RequestDetailProps> = ({
                       <span className="text-sm text-neutral-700">
                         <span className="font-medium mr-2">Rejected By:</span>
                         {rejecter.name} on{" "}
-                        {format(new Date(request.rejectedAt), "PPP")}
+                        {request.rejectedAt
+                          ? format(new Date(request.rejectedAt), "PPP")
+                          : "Unknown date"}
                       </span>
                       {request.rejectionReason && (
                         <p className="text-sm text-neutral-600 mt-1">
@@ -421,9 +458,11 @@ export const RequestDetail: React.FC<RequestDetailProps> = ({
                           {commentUser?.name || "Unknown User"}
                         </span>
                         <span className="text-xs text-neutral-500 ml-2">
-                          {formatDistanceToNow(new Date(comment.createdAt), {
-                            addSuffix: true,
-                          })}
+                          {comment.createdAt
+                            ? formatDistanceToNow(new Date(comment.createdAt), {
+                                addSuffix: true,
+                              })
+                            : "recently"}
                         </span>
                       </div>
                       <p className="text-neutral-700 mt-1">{comment.content}</p>

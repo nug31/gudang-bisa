@@ -60,26 +60,64 @@ export const InventoryProvider: React.FC<InventoryProviderProps> = ({
         }...`
       );
 
-      // Try the API endpoint first (same approach as BrowseItems)
-      console.log("Trying to fetch inventory items from /api/inventory...");
-      const response = await fetch("/api/inventory", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          action: "getAll",
-          categoryId: categoryId !== "all" ? categoryId : undefined,
-        }),
-      });
+      // Get the base URL for API calls
+      const baseUrl = window.location.origin;
+      const isProduction =
+        window.location.hostname.includes("netlify") ||
+        window.location.hostname.includes("gudangmitra");
 
-      if (!response.ok) {
-        console.log(
-          `API endpoint failed with status ${response.status}, trying fallback to /db/inventory...`
-        );
+      console.log(
+        `Running in ${isProduction ? "production" : "development"} mode`
+      );
+      console.log(`Base URL: ${baseUrl}`);
 
-        // Try fallback to db endpoint if API endpoint fails
-        const fallbackResponse = await fetch("/db/inventory", {
+      // Try the direct-inventory function first (most reliable)
+      console.log(
+        "Trying to fetch inventory items from direct-inventory function..."
+      );
+      try {
+        const directUrl = `${baseUrl}/.netlify/functions/direct-inventory`;
+        console.log(`Fetching from: ${directUrl}`);
+
+        const directResponse = await fetch(directUrl, {
+          method: "GET",
+          headers: {
+            "Content-Type": "application/json",
+          },
+        });
+
+        if (directResponse.ok) {
+          const text = await directResponse.text();
+          const data = text ? JSON.parse(text) : { items: [] };
+          const items = data.items || data;
+
+          console.log(
+            `Successfully fetched ${items.length} inventory items from direct endpoint`
+          );
+          console.log("Response format:", data);
+
+          if (items.length > 0) {
+            console.log("Sample item from direct endpoint:", items[0]);
+          }
+
+          setInventoryItems(Array.isArray(items) ? items : []);
+          setError(null);
+          return;
+        } else {
+          console.log(
+            `Direct endpoint failed with status ${directResponse.status}, trying API endpoint...`
+          );
+        }
+      } catch (directError) {
+        console.error("Error with direct endpoint:", directError);
+      }
+
+      // Try the API endpoint next
+      try {
+        const apiUrl = `${baseUrl}/api/inventory`;
+        console.log(`Trying to fetch inventory items from ${apiUrl}...`);
+
+        const response = await fetch(apiUrl, {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
@@ -90,130 +128,116 @@ export const InventoryProvider: React.FC<InventoryProviderProps> = ({
           }),
         });
 
-        if (!fallbackResponse.ok) {
-          console.log(
-            `DB endpoint failed with status ${fallbackResponse.status}, trying direct-inventory function...`
-          );
-
-          // Try the direct-inventory function as a last resort
-          const directResponse = await fetch(
-            "/.netlify/functions/direct-inventory",
-            {
-              method: "GET",
-              headers: {
-                "Content-Type": "application/json",
-              },
-            }
-          );
-
-          if (!directResponse.ok) {
-            console.log(`All endpoints failed, throwing error`);
-            throw new Error(
-              "Failed to fetch inventory items from all endpoints"
-            );
-          }
-
-          // Try to parse the direct response
-          try {
-            const text = await directResponse.text();
-            const items = text ? JSON.parse(text) : [];
-
-            console.log(
-              `Successfully fetched ${items.length} inventory items from direct endpoint`
-            );
-
-            if (items.length > 0) {
-              console.log("Sample item from direct endpoint:", items[0]);
-            }
-
-            setInventoryItems(Array.isArray(items) ? items : []);
-            setError(null);
-            return;
-          } catch (parseError) {
-            console.error("Error parsing direct response:", parseError);
-            throw new Error("Invalid response format from direct endpoint");
-          }
-        }
-
-        // Continue with fallback response if it was successful
-
-        // Try to parse the fallback response
-        try {
-          const text = await fallbackResponse.text();
+        if (response.ok) {
+          const text = await response.text();
           const responseData = text ? JSON.parse(text) : { items: [] };
-
-          // Handle both formats: array or {items: array}
           const items = responseData.items || responseData;
 
           console.log(
-            `Successfully fetched ${items.length} inventory items from fallback`
+            `Successfully fetched ${items.length} inventory items from API endpoint`
           );
-          console.log("Response format:", responseData);
 
-          // Log the category IDs to help with debugging
           if (items.length > 0) {
-            const categoryIds = [
-              ...new Set(items.map((item) => item.categoryId)),
-            ];
-            console.log("Available category IDs in data:", categoryIds);
-            console.log("Sample item:", items[0]);
-          } else {
-            console.warn("No items found in the fallback response");
+            console.log("Sample item from API endpoint:", items[0]);
           }
 
-          // Ensure we're setting a valid array of items
-          if (Array.isArray(items)) {
-            setInventoryItems(items);
-          } else {
-            console.warn(
-              "Fallback response is not an array, using empty array"
-            );
-            setInventoryItems([]);
-          }
+          setInventoryItems(Array.isArray(items) ? items : []);
           setError(null);
           return;
-        } catch (parseError) {
-          console.error("Error parsing fallback response:", parseError);
-          throw new Error("Invalid response format from server");
+        } else {
+          console.log(
+            `API endpoint failed with status ${response.status}, trying DB endpoint...`
+          );
         }
+      } catch (apiError) {
+        console.error("Error with API endpoint:", apiError);
       }
 
-      // Try to parse the response
+      // Try fallback to db endpoint
       try {
-        const text = await response.text();
-        const responseData = text ? JSON.parse(text) : { items: [] };
+        const dbUrl = `${baseUrl}/db/inventory`;
+        console.log(`Trying to fetch inventory items from ${dbUrl}...`);
 
-        // Handle both formats: array or {items: array}
-        const items = responseData.items || responseData;
+        const fallbackResponse = await fetch(dbUrl, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            action: "getAll",
+            categoryId: categoryId !== "all" ? categoryId : undefined,
+          }),
+        });
 
-        console.log(
-          `Successfully fetched ${items.length} inventory items from API endpoint`
-        );
-        console.log("Response format:", responseData);
+        if (fallbackResponse.ok) {
+          const text = await fallbackResponse.text();
+          const responseData = text ? JSON.parse(text) : { items: [] };
+          const items = responseData.items || responseData;
 
-        // Log the category IDs to help with debugging
-        if (items.length > 0) {
-          const categoryIds = [
-            ...new Set(items.map((item) => item.categoryId)),
-          ];
-          console.log("Available category IDs in data:", categoryIds);
-          console.log("Sample item:", items[0]);
+          console.log(
+            `Successfully fetched ${items.length} inventory items from DB endpoint`
+          );
+
+          if (items.length > 0) {
+            console.log("Sample item from DB endpoint:", items[0]);
+          }
+
+          setInventoryItems(Array.isArray(items) ? items : []);
+          setError(null);
+          return;
         } else {
-          console.warn("No items found in the response");
+          console.log(
+            `DB endpoint failed with status ${fallbackResponse.status}, trying Netlify function...`
+          );
         }
-
-        // Ensure we're setting a valid array of items
-        if (Array.isArray(items)) {
-          setInventoryItems(items);
-        } else {
-          console.warn("Response is not an array, using empty array");
-          setInventoryItems([]);
-        }
-        setError(null);
-      } catch (parseError) {
-        console.error("Error parsing response:", parseError);
-        throw new Error("Invalid response format from server");
+      } catch (dbError) {
+        console.error("Error with DB endpoint:", dbError);
       }
+
+      // Try the Netlify function as a last resort
+      try {
+        const netlifyUrl = `${baseUrl}/.netlify/functions/neon-inventory`;
+        console.log(`Trying to fetch inventory items from ${netlifyUrl}...`);
+
+        const netlifyResponse = await fetch(netlifyUrl, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            action: "getAll",
+            categoryId: categoryId !== "all" ? categoryId : undefined,
+          }),
+        });
+
+        if (netlifyResponse.ok) {
+          const text = await netlifyResponse.text();
+          const responseData = text ? JSON.parse(text) : { items: [] };
+          const items = responseData.items || responseData;
+
+          console.log(
+            `Successfully fetched ${items.length} inventory items from Netlify function`
+          );
+
+          if (items.length > 0) {
+            console.log("Sample item from Netlify function:", items[0]);
+          }
+
+          setInventoryItems(Array.isArray(items) ? items : []);
+          setError(null);
+          return;
+        } else {
+          console.log(`All endpoints failed, using mock data`);
+        }
+      } catch (netlifyError) {
+        console.error("Error with Netlify function:", netlifyError);
+      }
+
+      // If all endpoints fail, use mock data
+      console.log("All endpoints failed, using mock data");
+      const mockItems = getMockInventoryItems();
+      setInventoryItems(mockItems);
+      setError("Could not connect to the database. Using sample data instead.");
     } catch (error) {
       console.error("Error fetching inventory items:", error);
 
@@ -250,26 +274,64 @@ export const InventoryProvider: React.FC<InventoryProviderProps> = ({
         return cachedItem;
       }
 
-      // Try the API endpoint first
-      console.log("Trying to fetch inventory item from /api/inventory...");
-      const response = await fetch("/api/inventory", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          action: "getById",
-          id,
-        }),
-      });
+      // Get the base URL for API calls
+      const baseUrl = window.location.origin;
+      const isProduction =
+        window.location.hostname.includes("netlify") ||
+        window.location.hostname.includes("gudangmitra");
 
-      if (!response.ok) {
+      console.log(
+        `Running in ${isProduction ? "production" : "development"} mode`
+      );
+      console.log(`Base URL: ${baseUrl}`);
+
+      // Try the direct-inventory function first with the ID as a parameter
+      try {
+        const directUrl = `${baseUrl}/.netlify/functions/direct-inventory?id=${id}`;
+        console.log(`Trying to fetch inventory item from ${directUrl}...`);
+
+        const directResponse = await fetch(directUrl, {
+          method: "GET",
+          headers: {
+            "Content-Type": "application/json",
+          },
+        });
+
+        if (directResponse.ok) {
+          const text = await directResponse.text();
+          if (!text) {
+            console.log("Empty response from direct endpoint");
+          } else {
+            const data = JSON.parse(text);
+            const items = data.items || data;
+
+            if (Array.isArray(items) && items.length > 0) {
+              // Find the item with the matching ID
+              const item = items.find((item) => item.id === id);
+              if (item) {
+                console.log(
+                  "Found item in direct endpoint response:",
+                  item.name
+                );
+                return item;
+              }
+            }
+          }
+        }
+
         console.log(
-          `API endpoint failed with status ${response.status}, trying fallback to /db/inventory...`
+          "Item not found in direct endpoint response, trying API endpoint..."
         );
+      } catch (directError) {
+        console.error("Error with direct endpoint:", directError);
+      }
 
-        // Try fallback to db endpoint if API endpoint fails
-        const fallbackResponse = await fetch("/db/inventory", {
+      // Try the API endpoint next
+      try {
+        const apiUrl = `${baseUrl}/api/inventory`;
+        console.log(`Trying to fetch inventory item from ${apiUrl}...`);
+
+        const response = await fetch(apiUrl, {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
@@ -280,63 +342,90 @@ export const InventoryProvider: React.FC<InventoryProviderProps> = ({
           }),
         });
 
-        if (!fallbackResponse.ok) {
-          console.log(
-            "Both endpoints failed, checking if we can fetch all items..."
-          );
-
-          // If both direct fetches fail, try to fetch all items and find the one we need
-          if (inventoryItems.length === 0) {
-            await fetchInventoryItems();
-            const refetchedItem = inventoryItems.find((item) => item.id === id);
-            if (refetchedItem) {
-              console.log(
-                "Found item after fetching all items:",
-                refetchedItem.name
-              );
-              return refetchedItem;
-            }
+        if (response.ok) {
+          const text = await response.text();
+          if (!text) {
+            console.log("Empty response from API endpoint");
+          } else {
+            const item = JSON.parse(text);
+            console.log(
+              "Successfully fetched inventory item from API:",
+              item.name
+            );
+            return item;
           }
-
-          console.log(`Item with ID ${id} not found`);
-          return null;
+        } else {
+          console.log(
+            `API endpoint failed with status ${response.status}, trying DB endpoint...`
+          );
         }
+      } catch (apiError) {
+        console.error("Error with API endpoint:", apiError);
+      }
 
-        // Try to parse the fallback response
-        try {
+      // Try fallback to db endpoint
+      try {
+        const dbUrl = `${baseUrl}/db/inventory`;
+        console.log(`Trying to fetch inventory item from ${dbUrl}...`);
+
+        const fallbackResponse = await fetch(dbUrl, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            action: "getById",
+            id,
+          }),
+        });
+
+        if (fallbackResponse.ok) {
           const text = await fallbackResponse.text();
           if (!text) {
-            console.log("Empty response from fallback endpoint");
-            return null;
+            console.log("Empty response from DB endpoint");
+          } else {
+            const item = JSON.parse(text);
+            console.log(
+              "Successfully fetched inventory item from DB:",
+              item.name
+            );
+            return item;
           }
-
-          const item = JSON.parse(text);
+        } else {
           console.log(
-            "Successfully fetched inventory item from fallback:",
-            item.name
+            `DB endpoint failed with status ${fallbackResponse.status}, trying to fetch all items...`
           );
-          return item;
-        } catch (parseError) {
-          console.error("Error parsing fallback response:", parseError);
-          return null;
+        }
+      } catch (dbError) {
+        console.error("Error with DB endpoint:", dbError);
+      }
+
+      // If all direct fetches fail, try to fetch all items and find the one we need
+      console.log("All direct endpoints failed, trying to fetch all items...");
+      if (inventoryItems.length === 0) {
+        await fetchInventoryItems();
+        const refetchedItem = inventoryItems.find((item) => item.id === id);
+        if (refetchedItem) {
+          console.log(
+            "Found item after fetching all items:",
+            refetchedItem.name
+          );
+          return refetchedItem;
+        }
+      } else {
+        // Check one more time in our current items
+        const existingItem = inventoryItems.find((item) => item.id === id);
+        if (existingItem) {
+          console.log(
+            "Found item in existing inventory items:",
+            existingItem.name
+          );
+          return existingItem;
         }
       }
 
-      // Try to parse the response
-      try {
-        const text = await response.text();
-        if (!text) {
-          console.log("Empty response from API endpoint");
-          return null;
-        }
-
-        const item = JSON.parse(text);
-        console.log("Successfully fetched inventory item from API:", item.name);
-        return item;
-      } catch (parseError) {
-        console.error("Error parsing response:", parseError);
-        return null;
-      }
+      console.log(`Item with ID ${id} not found in any source`);
+      return null;
     } catch (err) {
       setError(
         err instanceof Error ? err.message : "An unknown error occurred"

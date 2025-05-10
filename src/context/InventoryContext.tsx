@@ -91,10 +91,51 @@ export const InventoryProvider: React.FC<InventoryProviderProps> = ({
         });
 
         if (!fallbackResponse.ok) {
-          throw new Error(
-            "Failed to fetch inventory items from both endpoints"
+          console.log(
+            `DB endpoint failed with status ${fallbackResponse.status}, trying direct-inventory function...`
           );
+
+          // Try the direct-inventory function as a last resort
+          const directResponse = await fetch(
+            "/.netlify/functions/direct-inventory",
+            {
+              method: "GET",
+              headers: {
+                "Content-Type": "application/json",
+              },
+            }
+          );
+
+          if (!directResponse.ok) {
+            console.log(`All endpoints failed, throwing error`);
+            throw new Error(
+              "Failed to fetch inventory items from all endpoints"
+            );
+          }
+
+          // Try to parse the direct response
+          try {
+            const text = await directResponse.text();
+            const items = text ? JSON.parse(text) : [];
+
+            console.log(
+              `Successfully fetched ${items.length} inventory items from direct endpoint`
+            );
+
+            if (items.length > 0) {
+              console.log("Sample item from direct endpoint:", items[0]);
+            }
+
+            setInventoryItems(Array.isArray(items) ? items : []);
+            setError(null);
+            return;
+          } catch (parseError) {
+            console.error("Error parsing direct response:", parseError);
+            throw new Error("Invalid response format from direct endpoint");
+          }
         }
+
+        // Continue with fallback response if it was successful
 
         // Try to parse the fallback response
         try {
@@ -116,9 +157,19 @@ export const InventoryProvider: React.FC<InventoryProviderProps> = ({
             ];
             console.log("Available category IDs in data:", categoryIds);
             console.log("Sample item:", items[0]);
+          } else {
+            console.warn("No items found in the fallback response");
           }
 
-          setInventoryItems(Array.isArray(items) ? items : []);
+          // Ensure we're setting a valid array of items
+          if (Array.isArray(items)) {
+            setInventoryItems(items);
+          } else {
+            console.warn(
+              "Fallback response is not an array, using empty array"
+            );
+            setInventoryItems([]);
+          }
           setError(null);
           return;
         } catch (parseError) {
@@ -147,9 +198,17 @@ export const InventoryProvider: React.FC<InventoryProviderProps> = ({
           ];
           console.log("Available category IDs in data:", categoryIds);
           console.log("Sample item:", items[0]);
+        } else {
+          console.warn("No items found in the response");
         }
 
-        setInventoryItems(Array.isArray(items) ? items : []);
+        // Ensure we're setting a valid array of items
+        if (Array.isArray(items)) {
+          setInventoryItems(items);
+        } else {
+          console.warn("Response is not an array, using empty array");
+          setInventoryItems([]);
+        }
         setError(null);
       } catch (parseError) {
         console.error("Error parsing response:", parseError);

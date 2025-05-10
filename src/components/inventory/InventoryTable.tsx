@@ -9,6 +9,8 @@ import {
   List,
   AlertTriangle,
   Trash2,
+  ShoppingCart,
+  Package,
 } from "lucide-react";
 import { InventoryItem } from "../../types/inventory";
 import { Button } from "../ui/Button";
@@ -19,7 +21,7 @@ import { useCategories } from "../../context/CategoryContext";
 import { CategoryView } from "./CategoryView";
 import { Modal } from "../ui/Modal";
 import { ExcelImporter } from "./ExcelImporter";
-import { useLocation } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "../../context/AuthContext";
 import { isAdminOrManager } from "../../utils/permissions";
 
@@ -36,6 +38,7 @@ export const InventoryTable: React.FC<InventoryTableProps> = ({
     useInventory();
   const { categories } = useCategories();
   const { user } = useAuth();
+  const navigate = useNavigate();
   const location = useLocation();
   const [searchQuery, setSearchQuery] = useState("");
   const [activeTab, setActiveTab] = useState<"items" | "categories">("items");
@@ -59,43 +62,36 @@ export const InventoryTable: React.FC<InventoryTableProps> = ({
 
   // Fetch inventory items when category changes
   useEffect(() => {
-    if (selectedCategory !== "all") {
-      console.log("Fetching inventory items for category:", selectedCategory);
-      fetchInventoryItems(selectedCategory);
-    } else {
-      console.log("Fetching all inventory items");
-      fetchInventoryItems();
-    }
-  }, [selectedCategory]);
+    const fetchItems = async () => {
+      try {
+        if (selectedCategory !== "all") {
+          console.log(
+            "Fetching inventory items for category:",
+            selectedCategory
+          );
+          await fetchInventoryItems(selectedCategory);
+        } else {
+          console.log("Fetching all inventory items");
+          await fetchInventoryItems();
+        }
+        console.log("Inventory items fetched successfully");
+      } catch (error) {
+        console.error("Error fetching inventory items:", error);
+      }
+    };
 
-  // Add debugging logs
-  console.log("Selected category:", selectedCategory);
-  console.log("Available categories:", categories);
-  console.log("Inventory items before filtering:", inventoryItems);
+    fetchItems();
 
-  // Check if we have categories, if not use mock categories
-  if (categories.length === 0) {
-    console.log("No categories available, using mock categories for filtering");
-    // We don't modify the categories array directly as it's managed by the context
-    // but we can use this information for better error handling
-  }
+    // Set up a retry mechanism if no items are loaded after 5 seconds
+    const retryTimer = setTimeout(() => {
+      if (inventoryItems.length === 0 && !loading) {
+        console.log("No items loaded after timeout, retrying...");
+        fetchItems();
+      }
+    }, 5000);
 
-  // Check for "Cleaning Supplies" category
-  const cleaningCategory = categories.find(
-    (c) => c.name === "Cleaning" || c.name === "Cleaning Supplies"
-  );
-  if (cleaningCategory) {
-    console.log("Found Cleaning category:", cleaningCategory);
-    console.log(
-      "Items in Cleaning category:",
-      inventoryItems.filter(
-        (item) =>
-          item.categoryId === cleaningCategory.id ||
-          item.categoryName === "Cleaning" ||
-          item.categoryName === "Cleaning Supplies"
-      )
-    );
-  }
+    return () => clearTimeout(retryTimer);
+  }, [selectedCategory, fetchInventoryItems, inventoryItems.length, loading]);
 
   // Filter items based on search query, category, and low stock
   const filteredItems = inventoryItems.filter((item) => {
@@ -108,32 +104,9 @@ export const InventoryTable: React.FC<InventoryTableProps> = ({
         ?.name.toLowerCase()
         .includes(searchQuery.toLowerCase());
 
-    // Apply category filter with improved matching
-    // Get the selected category object if not "all"
-    const selectedCategoryObj =
-      selectedCategory !== "all"
-        ? categories.find((c) => c.id === selectedCategory)
-        : null;
-
+    // Apply category filter
     const matchesCategory =
-      selectedCategory === "all" ||
-      // Direct ID match
-      item.categoryId === selectedCategory ||
-      // String comparison for IDs
-      (item.categoryId &&
-        selectedCategory &&
-        item.categoryId.toString() === selectedCategory.toString()) ||
-      // Match by category name if we have both
-      (selectedCategoryObj &&
-        item.categoryName &&
-        item.categoryName.toLowerCase() ===
-          selectedCategoryObj.name.toLowerCase()) ||
-      // Special case for "cleaning-supplies"
-      (selectedCategory === "cleaning-supplies" &&
-        (item.categoryName === "Cleaning" ||
-          item.categoryName === "Cleaning Supplies" ||
-          item.categoryId === "2" || // Common ID for cleaning in mock data
-          (cleaningCategory && item.categoryId === cleaningCategory.id)));
+      selectedCategory === "all" || item.categoryId === selectedCategory;
 
     // Apply low stock filter
     const matchesLowStock = showLowStockOnly
@@ -143,36 +116,14 @@ export const InventoryTable: React.FC<InventoryTableProps> = ({
     return matchesSearch && matchesCategory && matchesLowStock;
   });
 
-  // Log filtered results
-  console.log("Filtered items:", filteredItems);
-
   const handleImportFromExcel = () => {
     setShowImportModal(true);
   };
 
   const handleImportSuccess = () => {
-    console.log("Import success callback triggered in InventoryTable");
-    // Force a refresh of the inventory items with the current category filter
-    if (selectedCategory !== "all") {
-      console.log("Refreshing inventory items for category:", selectedCategory);
-      fetchInventoryItems(selectedCategory);
-    } else {
-      console.log("Refreshing all inventory items");
-      fetchInventoryItems();
-    }
-
-    // Add a second refresh after a delay to ensure all database operations complete
-    setTimeout(() => {
-      console.log("Performing delayed refresh after import");
-      fetchInventoryItems(
-        selectedCategory !== "all" ? selectedCategory : undefined
-      );
-    }, 2000);
-  };
-
-  const handleExportToExcel = () => {
-    // This would be implemented with an Excel generation library
-    alert("Export to Excel functionality would be implemented here");
+    fetchInventoryItems(
+      selectedCategory !== "all" ? selectedCategory : undefined
+    );
   };
 
   const handleDeleteItem = async (item: InventoryItem) => {
@@ -204,33 +155,15 @@ export const InventoryTable: React.FC<InventoryTableProps> = ({
     }
   };
 
-  const getCategoryName = (categoryId: string | number) => {
-    // If the item already has a categoryName property, use that
-    const item = inventoryItems.find(
-      (i) =>
-        i.categoryId === categoryId ||
-        i.categoryId?.toString() === categoryId?.toString()
-    );
-    if (item?.categoryName) {
-      return item.categoryName;
-    }
+  const handleRequestItem = (itemId: string) => {
+    navigate(`/requests/new?itemId=${itemId}`);
+  };
 
-    // Otherwise, look up the category in the categories array
+  const getCategoryName = (categoryId: string | number) => {
     const category = categories.find(
       (c) => c.id === categoryId || c.id?.toString() === categoryId?.toString()
     );
-
-    if (category) {
-      return category.name;
-    }
-
-    // Log the issue for debugging
-    console.log(`Could not find category name for ID: ${categoryId}`, {
-      availableCategories: categories.map((c) => ({ id: c.id, name: c.name })),
-      categoryIdType: typeof categoryId,
-    });
-
-    return "Unknown";
+    return category ? category.name : "Unknown";
   };
 
   return (
@@ -250,48 +183,13 @@ export const InventoryTable: React.FC<InventoryTableProps> = ({
             <Select
               options={[
                 { value: "all", label: "All Categories" },
-                ...(categories.length > 0
-                  ? categories.map((category) => ({
-                      value: category.id,
-                      label: category.name,
-                    }))
-                  : [
-                      { value: "1", label: "Office" },
-                      { value: "2", label: "Cleaning" },
-                      { value: "3", label: "Hardware" },
-                      { value: "4", label: "Other" },
-                    ]),
-                // Add special case for Cleaning Supplies if it doesn't exist
-                ...(categories.some(
-                  (c) => c.name === "Cleaning" || c.name === "Cleaning Supplies"
-                )
-                  ? []
-                  : [
-                      {
-                        value: "cleaning-supplies",
-                        label: "Cleaning Supplies",
-                      },
-                    ]),
+                ...categories.map((category) => ({
+                  value: category.id,
+                  label: category.name,
+                })),
               ]}
               value={selectedCategory}
-              onChange={(value) => {
-                console.log("Category changed to:", value);
-
-                // Special handling for "Cleaning Supplies"
-                if (value === "Cleaning Supplies" && cleaningCategory) {
-                  console.log(
-                    "Converting 'Cleaning Supplies' to actual category ID:",
-                    cleaningCategory.id
-                  );
-                  value = cleaningCategory.id;
-                }
-
-                console.log(
-                  "Items with this category:",
-                  inventoryItems.filter((item) => item.categoryId === value)
-                );
-                setSelectedCategory(value);
-              }}
+              onChange={(value) => setSelectedCategory(value)}
               placeholder="Filter by category"
             />
           </div>
@@ -337,14 +235,14 @@ export const InventoryTable: React.FC<InventoryTableProps> = ({
                 onClick={handleImportFromExcel}
                 className="bg-white"
               >
-                Import from Excel
+                Import
               </Button>
               <Button
                 variant="primary"
                 leftIcon={<Plus className="h-4 w-4" />}
                 onClick={onAddItem}
               >
-                Add New Item
+                Add Item
               </Button>
             </>
           )}
@@ -360,28 +258,6 @@ export const InventoryTable: React.FC<InventoryTableProps> = ({
             </div>
             <div className="ml-3">
               <p className="text-sm font-medium">{deleteError}</p>
-            </div>
-            <div className="ml-auto pl-3">
-              <div className="-mx-1.5 -my-1.5">
-                <button
-                  type="button"
-                  className="inline-flex rounded-md p-1.5 text-error-500 hover:bg-error-100 focus:outline-none focus:ring-2 focus:ring-error-600 focus:ring-offset-2 focus:ring-offset-error-50"
-                  onClick={() => setDeleteError(null)}
-                >
-                  <span className="sr-only">Dismiss</span>
-                  <svg
-                    className="h-5 w-5"
-                    viewBox="0 0 20 20"
-                    fill="currentColor"
-                  >
-                    <path
-                      fillRule="evenodd"
-                      d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z"
-                      clipRule="evenodd"
-                    />
-                  </svg>
-                </button>
-              </div>
             </div>
           </div>
         </div>
@@ -419,118 +295,141 @@ export const InventoryTable: React.FC<InventoryTableProps> = ({
         </div>
       ) : viewMode === "table" ? (
         // Table View
-        <div className="bg-white rounded-lg shadow-sm border border-neutral-200">
-          <table className="min-w-full">
-            <thead>
-              <tr className="border-b border-neutral-200 bg-neutral-50">
-                <th
-                  scope="col"
-                  className="px-6 py-3 text-left text-xs font-medium text-neutral-500 uppercase tracking-wider"
-                >
-                  Item Name
-                </th>
-                <th
-                  scope="col"
-                  className="px-6 py-3 text-left text-xs font-medium text-neutral-500 uppercase tracking-wider"
-                >
-                  Category
-                </th>
-                <th
-                  scope="col"
-                  className="px-6 py-3 text-center text-xs font-medium text-neutral-500 uppercase tracking-wider"
-                >
-                  Available
-                </th>
-                <th
-                  scope="col"
-                  className="px-6 py-3 text-center text-xs font-medium text-neutral-500 uppercase tracking-wider"
-                >
-                  Reserved
-                </th>
-                <th
-                  scope="col"
-                  className="px-6 py-3 text-center text-xs font-medium text-neutral-500 uppercase tracking-wider"
-                >
-                  Total
-                </th>
-                <th
-                  scope="col"
-                  className="px-6 py-3 text-right text-xs font-medium text-neutral-500 uppercase tracking-wider"
-                >
-                  Actions
-                </th>
-              </tr>
-            </thead>
-            <tbody>
-              {filteredItems.map((item, index) => (
-                <tr
-                  key={item.id}
-                  className={`hover:bg-neutral-50 ${
-                    index !== filteredItems.length - 1
-                      ? "border-b border-neutral-200"
-                      : ""
-                  }`}
-                >
-                  <td className="px-6 py-4">
-                    <div className="text-sm font-medium text-neutral-900">
-                      {item.name}
-                    </div>
-                    {item.description && (
-                      <div className="text-sm text-neutral-500 truncate max-w-xs">
-                        {item.description}
-                      </div>
-                    )}
-                  </td>
-                  <td className="px-6 py-4">
-                    <div className="text-sm text-neutral-900">
-                      {getCategoryName(item.categoryId)}
-                    </div>
-                  </td>
-                  <td className="px-6 py-4 text-center">
-                    <div className="text-sm text-neutral-900">
-                      {item.quantityAvailable}
-                    </div>
-                  </td>
-                  <td className="px-6 py-4 text-center">
-                    <div className="text-sm text-neutral-900">
-                      {item.quantityReserved}
-                    </div>
-                  </td>
-                  <td className="px-6 py-4 text-center">
-                    <div className="text-sm font-medium text-neutral-900">
-                      {item.quantityAvailable + item.quantityReserved}
-                    </div>
-                  </td>
-                  <td className="px-6 py-4 text-right">
-                    <div className="flex justify-end space-x-1">
-                      {userIsAdminOrManager && (
-                        <>
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => onEditItem(item)}
-                            className="text-primary-600 hover:text-primary-900"
-                            title="Edit Item"
-                          >
-                            <Edit className="h-4 w-4 text-blue-500" />
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => handleDeleteItem(item)}
-                            className="text-error-600 hover:text-error-900"
-                            title="Delete Item"
-                          >
-                            <Trash2 className="h-4 w-4 text-red-500" />
-                          </Button>
-                        </>
-                      )}
-                    </div>
-                  </td>
+        <div className="bg-white rounded-lg shadow-sm border border-neutral-200 responsive-table">
+          <div className="block md:hidden p-4 bg-neutral-50 border-b border-neutral-200">
+            <p className="text-sm text-neutral-500">
+              Swipe horizontally to see all columns or switch to Grid view for
+              better mobile experience.
+            </p>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="min-w-full">
+              <thead className="hidden md:table-header-group">
+                <tr className="border-b border-neutral-200 bg-neutral-50">
+                  <th
+                    scope="col"
+                    className="px-6 py-3 text-left text-xs font-medium text-neutral-500 uppercase tracking-wider"
+                  >
+                    Item Name
+                  </th>
+                  <th
+                    scope="col"
+                    className="px-6 py-3 text-left text-xs font-medium text-neutral-500 uppercase tracking-wider"
+                  >
+                    Category
+                  </th>
+                  <th
+                    scope="col"
+                    className="px-6 py-3 text-center text-xs font-medium text-neutral-500 uppercase tracking-wider"
+                  >
+                    Available
+                  </th>
+                  <th
+                    scope="col"
+                    className="px-6 py-3 text-center text-xs font-medium text-neutral-500 uppercase tracking-wider"
+                  >
+                    Reserved
+                  </th>
+                  <th
+                    scope="col"
+                    className="px-6 py-3 text-center text-xs font-medium text-neutral-500 uppercase tracking-wider"
+                  >
+                    Total
+                  </th>
+                  <th
+                    scope="col"
+                    className="px-6 py-3 text-right text-xs font-medium text-neutral-500 uppercase tracking-wider"
+                  >
+                    Actions
+                  </th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {filteredItems.map((item, index) => (
+                  <tr
+                    key={item.id}
+                    className={`hover:bg-neutral-50 ${
+                      index !== filteredItems.length - 1
+                        ? "border-b border-neutral-200"
+                        : ""
+                    }`}
+                  >
+                    <td className="px-6 py-4" data-label="Item">
+                      <div className="text-sm font-medium text-neutral-900">
+                        {item.name}
+                      </div>
+                      {item.description && (
+                        <div className="text-sm text-neutral-500 truncate max-w-xs">
+                          {item.description}
+                        </div>
+                      )}
+                    </td>
+                    <td className="px-6 py-4" data-label="Category">
+                      <div className="text-sm text-neutral-900">
+                        {getCategoryName(item.categoryId)}
+                      </div>
+                    </td>
+                    <td
+                      className="px-6 py-4 text-center"
+                      data-label="Available"
+                    >
+                      <div className="text-sm text-neutral-900">
+                        {item.quantityAvailable}
+                      </div>
+                    </td>
+                    <td className="px-6 py-4 text-center" data-label="Reserved">
+                      <div className="text-sm text-neutral-900">
+                        {item.quantityReserved}
+                      </div>
+                    </td>
+                    <td className="px-6 py-4 text-center" data-label="Total">
+                      <div className="text-sm font-medium text-neutral-900">
+                        {item.quantityAvailable + item.quantityReserved}
+                      </div>
+                    </td>
+                    <td className="px-6 py-4 text-right" data-label="Actions">
+                      <div className="flex justify-end space-x-1 action-buttons">
+                        {userIsAdminOrManager && (
+                          <>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => onEditItem(item)}
+                              className="text-primary-600 hover:text-primary-900"
+                              title="Edit Item"
+                              aria-label="Edit item"
+                            >
+                              <Edit className="h-4 w-4 text-blue-500" />
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => handleDeleteItem(item)}
+                              className="text-error-600 hover:text-error-900"
+                              title="Delete Item"
+                              aria-label="Delete item"
+                            >
+                              <Trash2 className="h-4 w-4 text-red-500" />
+                            </Button>
+                          </>
+                        )}
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => handleRequestItem(item.id)}
+                          className="text-success-600 hover:text-success-900"
+                          title="Request Item"
+                          aria-label="Request item"
+                        >
+                          <ShoppingCart className="h-4 w-4 text-green-500" />
+                        </Button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </div>
       ) : (
         // Grid View (Category View)

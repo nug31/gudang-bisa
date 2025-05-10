@@ -185,6 +185,14 @@ exports.handler = async (event, context) => {
             source: "neon-database",
           });
 
+          // Log the actual first item for debugging
+          if (itemsArray.length > 0) {
+            console.log(
+              "First item in response:",
+              JSON.stringify(itemsArray[0])
+            );
+          }
+
           return {
             statusCode: 200,
             headers,

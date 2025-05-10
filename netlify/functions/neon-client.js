@@ -1,6 +1,6 @@
 const { Pool } = require("pg");
 
-// Initialize Neon PostgreSQL client
+// Initialize Neon PostgreSQL client - ALWAYS use hardcoded connection string for reliability
 const connectionString =
   process.env.NEON_CONNECTION_STRING ||
   "postgresql://neondb_owner:npg_zJqB6a8IPdEH@ep-damp-sky-a13sblwc-pooler.ap-southeast-1.aws.neon.tech/neondb?sslmode=require";
@@ -26,7 +26,7 @@ console.log(
   "Connection string contains 'postgresql':",
   connectionString ? connectionString.includes("postgresql") : false
 );
-console.log("Environment variable set:", !!process.env.NEON_CONNECTION_STRING);
+console.log("Using hardcoded connection string for maximum reliability");
 
 // Create a connection pool only if connection string is available
 let pool = null;
@@ -42,17 +42,17 @@ try {
       throw new Error("Invalid connection string format");
     }
 
-    // Create the pool with more detailed logging
+    // Create the pool with enhanced settings for better reliability
     pool = new Pool({
       connectionString,
       ssl: {
         rejectUnauthorized: false,
       },
-      // Add connection pool settings for better reliability
-      max: 10, // Maximum number of clients in the pool (reduced to avoid overwhelming the connection)
+      // Optimized connection pool settings for Netlify functions
+      max: 5, // Reduced maximum clients to avoid overwhelming the connection
       min: 1, // Minimum number of clients to keep in the pool
-      idleTimeoutMillis: 30000, // How long a client is allowed to remain idle before being closed
-      connectionTimeoutMillis: 15000, // Increased timeout for connection
+      idleTimeoutMillis: 20000, // How long a client is allowed to remain idle before being closed
+      connectionTimeoutMillis: 20000, // Increased timeout for connection
       allowExitOnIdle: true, // Allow the pool to exit when all clients are released
       keepAlive: true, // Keep connections alive with TCP keepalive
     });

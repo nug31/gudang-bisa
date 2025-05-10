@@ -1,0 +1,61 @@
+Changes made to Header.tsx:
+
+1. Removed "Stock Management" link from desktop navigation:
+```tsx
+// Before:
+{/* Show inventory management link for both admin and manager roles */}
+{(user?.role === "admin" || user?.role === "manager") && (
+  <Link
+    to="/inventory"
+    className="inline-flex items-center px-3 py-2 text-sm font-medium text-neutral-600 border-b-2 border-transparent hover:border-primary-400 hover:text-primary-500 transition-all rounded-md hover:bg-neutral-50 tilt-3d"
+    style={
+      {
+        "--rotateX": "2deg",
+        "--rotateY": "5deg",
+      } as React.CSSProperties
+    }
+  >
+    <Warehouse className="h-4 w-4 mr-2 icon-3d navbar-icon" />
+    Stock Management
+  </Link>
+)}
+
+// After:
+{/* Stock Management link removed as requested */}
+```
+
+2. Removed "Stock Management" link from admin section in mobile menu:
+```tsx
+// Before:
+<Link
+  to="/inventory"
+  className="flex items-center pl-4 pr-4 py-3 text-base font-medium text-neutral-700 hover:bg-neutral-50 hover:text-primary-500 border-l-4 border-transparent hover:border-primary-500 transition-all"
+  onClick={() => setMobileMenuOpen(false)}
+>
+  <div className="flex items-center justify-center w-8 h-8 rounded-full bg-primary-50 mr-3">
+    <Warehouse className="h-4 w-4 text-primary-500" />
+  </div>
+  Stock Management
+</Link>
+
+// After:
+{/* Stock Management link removed as requested */}
+```
+
+3. Removed "Stock Management" link from manager section in mobile menu:
+```tsx
+// Before:
+<Link
+  to="/inventory"
+  className="flex items-center pl-4 pr-4 py-3 text-base font-medium text-neutral-700 hover:bg-neutral-50 hover:text-primary-500 border-l-4 border-transparent hover:border-primary-500 transition-all"
+  onClick={() => setMobileMenuOpen(false)}
+>
+  <div className="flex items-center justify-center w-8 h-8 rounded-full bg-primary-50 mr-3">
+    <Warehouse className="h-4 w-4 text-primary-500" />
+  </div>
+  Stock Management
+</Link>
+
+// After:
+{/* Stock Management link removed as requested */}
+```

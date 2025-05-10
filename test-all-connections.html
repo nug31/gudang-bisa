@@ -1,0 +1,370 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Test All Neon Database Connections</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 1000px;
+            margin: 0 auto;
+            padding: 20px;
+            line-height: 1.6;
+        }
+        h1, h2, h3 {
+            color: #333;
+        }
+        .test-section {
+            margin-bottom: 30px;
+            border: 1px solid #ddd;
+            padding: 15px;
+            border-radius: 5px;
+        }
+        .test-buttons {
+            margin-bottom: 15px;
+        }
+        button {
+            padding: 10px 15px;
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            margin-right: 10px;
+            margin-bottom: 10px;
+        }
+        button:hover {
+            background-color: #45a049;
+        }
+        pre {
+            background-color: #f5f5f5;
+            padding: 15px;
+            border-radius: 4px;
+            overflow-x: auto;
+            max-height: 300px;
+            overflow-y: auto;
+        }
+        .loading {
+            display: inline-block;
+            margin-left: 10px;
+            color: #666;
+        }
+        .status {
+            font-weight: bold;
+            margin-top: 10px;
+        }
+        .success {
+            color: green;
+        }
+        .error {
+            color: red;
+        }
+        .test-all-btn {
+            background-color: #2196F3;
+            font-size: 16px;
+            padding: 12px 20px;
+            margin-bottom: 20px;
+        }
+        .test-all-btn:hover {
+            background-color: #0b7dda;
+        }
+    </style>
+</head>
+<body>
+    <h1>Test All Neon Database Connections</h1>
+    
+    <button id="testAllConnections" class="test-all-btn">Test All Connections</button>
+    
+    <div class="test-section">
+        <h2>1. Database Connection Test</h2>
+        <div class="test-buttons">
+            <button id="testConnection">Test Neon Connection</button>
+            <span id="connectionLoading" class="loading"></span>
+        </div>
+        <div id="connectionStatus" class="status"></div>
+        <pre id="connectionResponse">Click the button to test the connection...</pre>
+    </div>
+    
+    <div class="test-section">
+        <h2>2. Database Initialization</h2>
+        <div class="test-buttons">
+            <button id="initDb">Initialize Database</button>
+            <span id="initDbLoading" class="loading"></span>
+        </div>
+        <div id="initDbStatus" class="status"></div>
+        <pre id="initDbResponse">Click the button to initialize the database...</pre>
+    </div>
+    
+    <div class="test-section">
+        <h2>3. Users API</h2>
+        <div class="test-buttons">
+            <button id="testUsers">Test Users API</button>
+            <span id="usersLoading" class="loading"></span>
+        </div>
+        <div id="usersStatus" class="status"></div>
+        <pre id="usersResponse">Click the button to test the Users API...</pre>
+    </div>
+    
+    <div class="test-section">
+        <h2>4. Categories API</h2>
+        <div class="test-buttons">
+            <button id="testCategories">Test Categories API</button>
+            <span id="categoriesLoading" class="loading"></span>
+        </div>
+        <div id="categoriesStatus" class="status"></div>
+        <pre id="categoriesResponse">Click the button to test the Categories API...</pre>
+    </div>
+    
+    <div class="test-section">
+        <h2>5. Inventory API</h2>
+        <div class="test-buttons">
+            <button id="testInventory">Test Inventory API</button>
+            <span id="inventoryLoading" class="loading"></span>
+        </div>
+        <div id="inventoryStatus" class="status"></div>
+        <pre id="inventoryResponse">Click the button to test the Inventory API...</pre>
+    </div>
+    
+    <div class="test-section">
+        <h2>6. Requests API</h2>
+        <div class="test-buttons">
+            <button id="testRequests">Test Requests API</button>
+            <span id="requestsLoading" class="loading"></span>
+        </div>
+        <div id="requestsStatus" class="status"></div>
+        <pre id="requestsResponse">Click the button to test the Requests API...</pre>
+    </div>
+    
+    <div class="test-section">
+        <h2>7. Authentication API</h2>
+        <div class="test-buttons">
+            <button id="testAuth">Test Authentication API</button>
+            <span id="authLoading" class="loading"></span>
+        </div>
+        <div id="authStatus" class="status"></div>
+        <pre id="authResponse">Click the button to test the Authentication API...</pre>
+    </div>
+
+    <script>
+        // API endpoints
+        const API_BASE_URL = 'https://gudangbisa.netlify.app/.netlify/functions';
+        
+        // Helper function to display JSON response
+        function displayResponse(elementId, data) {
+            document.getElementById(elementId).textContent = JSON.stringify(data, null, 2);
+        }
+        
+        // Helper function to show/hide loading indicator
+        function setLoading(elementId, isLoading) {
+            document.getElementById(elementId).textContent = isLoading ? 'Loading...' : '';
+        }
+        
+        // Helper function to set status
+        function setStatus(elementId, success, message) {
+            const statusElement = document.getElementById(elementId);
+            statusElement.textContent = message;
+            statusElement.className = success ? 'status success' : 'status error';
+        }
+        
+        // Test connection
+        async function testConnectionFn() {
+            try {
+                setLoading('connectionLoading', true);
+                const response = await fetch(`${API_BASE_URL}/test-neon`);
+                const data = await response.json();
+                displayResponse('connectionResponse', data);
+                
+                const success = data.status === 'success' || data.connected === true;
+                setStatus('connectionStatus', success, 
+                    success ? 'Connection successful!' : 'Connection failed!');
+                
+                return success;
+            } catch (error) {
+                displayResponse('connectionResponse', { error: error.message });
+                setStatus('connectionStatus', false, 'Connection failed: ' + error.message);
+                return false;
+            } finally {
+                setLoading('connectionLoading', false);
+            }
+        }
+        
+        // Initialize database
+        async function initDbFn() {
+            try {
+                setLoading('initDbLoading', true);
+                const response = await fetch(`${API_BASE_URL}/init-neon-db`);
+                const data = await response.json();
+                displayResponse('initDbResponse', data);
+                
+                const success = data.status === 'success';
+                setStatus('initDbStatus', success, 
+                    success ? 'Database initialized successfully!' : 'Database initialization failed!');
+                
+                return success;
+            } catch (error) {
+                displayResponse('initDbResponse', { error: error.message });
+                setStatus('initDbStatus', false, 'Database initialization failed: ' + error.message);
+                return false;
+            } finally {
+                setLoading('initDbLoading', false);
+            }
+        }
+        
+        // Test Users API
+        async function testUsersFn() {
+            try {
+                setLoading('usersLoading', true);
+                const response = await fetch(`${API_BASE_URL}/neon-users`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ action: 'getAll' })
+                });
+                const data = await response.json();
+                displayResponse('usersResponse', data);
+                
+                const success = data.success === true && Array.isArray(data.users);
+                setStatus('usersStatus', success, 
+                    success ? `Users API working! Found ${data.users?.length || 0} users.` : 'Users API failed!');
+                
+                return success;
+            } catch (error) {
+                displayResponse('usersResponse', { error: error.message });
+                setStatus('usersStatus', false, 'Users API failed: ' + error.message);
+                return false;
+            } finally {
+                setLoading('usersLoading', false);
+            }
+        }
+        
+        // Test Categories API
+        async function testCategoriesFn() {
+            try {
+                setLoading('categoriesLoading', true);
+                const response = await fetch(`${API_BASE_URL}/neon-categories`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ action: 'getAll' })
+                });
+                const data = await response.json();
+                displayResponse('categoriesResponse', data);
+                
+                const success = data.success === true && Array.isArray(data.categories);
+                setStatus('categoriesStatus', success, 
+                    success ? `Categories API working! Found ${data.categories?.length || 0} categories.` : 'Categories API failed!');
+                
+                return success;
+            } catch (error) {
+                displayResponse('categoriesResponse', { error: error.message });
+                setStatus('categoriesStatus', false, 'Categories API failed: ' + error.message);
+                return false;
+            } finally {
+                setLoading('categoriesLoading', false);
+            }
+        }
+        
+        // Test Inventory API
+        async function testInventoryFn() {
+            try {
+                setLoading('inventoryLoading', true);
+                const response = await fetch(`${API_BASE_URL}/neon-inventory`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ action: 'getAll' })
+                });
+                const data = await response.json();
+                displayResponse('inventoryResponse', data);
+                
+                const success = data.success === true && Array.isArray(data.items);
+                setStatus('inventoryStatus', success, 
+                    success ? `Inventory API working! Found ${data.items?.length || 0} items.` : 'Inventory API failed!');
+                
+                return success;
+            } catch (error) {
+                displayResponse('inventoryResponse', { error: error.message });
+                setStatus('inventoryStatus', false, 'Inventory API failed: ' + error.message);
+                return false;
+            } finally {
+                setLoading('inventoryLoading', false);
+            }
+        }
+        
+        // Test Requests API
+        async function testRequestsFn() {
+            try {
+                setLoading('requestsLoading', true);
+                const response = await fetch(`${API_BASE_URL}/neon-requests`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ action: 'getAll' })
+                });
+                const data = await response.json();
+                displayResponse('requestsResponse', data);
+                
+                const success = data.success === true && Array.isArray(data.requests);
+                setStatus('requestsStatus', success, 
+                    success ? `Requests API working! Found ${data.requests?.length || 0} requests.` : 'Requests API failed!');
+                
+                return success;
+            } catch (error) {
+                displayResponse('requestsResponse', { error: error.message });
+                setStatus('requestsStatus', false, 'Requests API failed: ' + error.message);
+                return false;
+            } finally {
+                setLoading('requestsLoading', false);
+            }
+        }
+        
+        // Test Authentication API
+        async function testAuthFn() {
+            try {
+                setLoading('authLoading', true);
+                const response = await fetch(`${API_BASE_URL}/neon-auth`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ 
+                        action: 'login',
+                        email: 'admin@gudangmitra.com',
+                        password: 'admin123'
+                    })
+                });
+                const data = await response.json();
+                displayResponse('authResponse', data);
+                
+                const success = data.success === true && data.user;
+                setStatus('authStatus', success, 
+                    success ? `Authentication API working! Logged in as ${data.user?.name || 'Admin'}.` : 'Authentication API failed!');
+                
+                return success;
+            } catch (error) {
+                displayResponse('authResponse', { error: error.message });
+                setStatus('authStatus', false, 'Authentication API failed: ' + error.message);
+                return false;
+            } finally {
+                setLoading('authLoading', false);
+            }
+        }
+        
+        // Test all connections
+        async function testAllConnectionsFn() {
+            await testConnectionFn();
+            await initDbFn();
+            await testUsersFn();
+            await testCategoriesFn();
+            await testInventoryFn();
+            await testRequestsFn();
+            await testAuthFn();
+        }
+        
+        // Add event listeners
+        document.getElementById('testConnection').addEventListener('click', testConnectionFn);
+        document.getElementById('initDb').addEventListener('click', initDbFn);
+        document.getElementById('testUsers').addEventListener('click', testUsersFn);
+        document.getElementById('testCategories').addEventListener('click', testCategoriesFn);
+        document.getElementById('testInventory').addEventListener('click', testInventoryFn);
+        document.getElementById('testRequests').addEventListener('click', testRequestsFn);
+        document.getElementById('testAuth').addEventListener('click', testAuthFn);
+        document.getElementById('testAllConnections').addEventListener('click', testAllConnectionsFn);
+    </script>
+</body>
+</html>

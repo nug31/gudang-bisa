@@ -1,6 +1,13 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
-import { PlusCircle, Search, Filter, Package } from "lucide-react";
+import {
+  PlusCircle,
+  Search,
+  Filter,
+  Package,
+  RefreshCw,
+  Clock,
+} from "lucide-react";
 import { Layout } from "../components/layout/Layout";
 import { useRequests } from "../context/RequestContext";
 import { RequestCard } from "../components/requests/RequestCard";
@@ -8,14 +15,50 @@ import { Button } from "../components/ui/Button";
 import { Input } from "../components/ui/Input";
 import { Select } from "../components/ui/Select";
 import { ItemRequest } from "../types";
+import { formatDistanceToNow } from "date-fns";
 
 export const RequestList: React.FC = () => {
-  const { userRequests, loading } = useRequests();
+  const { userRequests, loading, refreshRequests, lastRefreshed } =
+    useRequests();
   const navigate = useNavigate();
 
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
   const [sortOrder, setSortOrder] = useState("newest");
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const [requestCount, setRequestCount] = useState<number>(0);
+  const [hasNewData, setHasNewData] = useState<boolean>(false);
+
+  // Check for new data when userRequests changes
+  useEffect(() => {
+    console.log("User requests updated:", userRequests.length);
+
+    if (requestCount > 0 && userRequests.length !== requestCount) {
+      console.log("New data detected!");
+      setHasNewData(true);
+    }
+
+    setRequestCount(userRequests.length);
+  }, [userRequests]);
+
+  // Set up polling interval
+  useEffect(() => {
+    // Poll every 5 seconds
+    const interval = setInterval(() => {
+      console.log("Auto-refreshing requests...");
+      refreshRequests();
+    }, 5000); // 5 seconds
+
+    return () => clearInterval(interval);
+  }, [refreshRequests]);
+
+  // Handle manual refresh
+  const handleRefresh = async () => {
+    setIsRefreshing(true);
+    await refreshRequests();
+    setHasNewData(false);
+    setIsRefreshing(false);
+  };
 
   const handleNewRequest = () => {
     navigate("/requests/new");
@@ -144,9 +187,41 @@ export const RequestList: React.FC = () => {
         {/* Results */}
         <div className="space-y-4">
           <div className="flex justify-between items-center">
-            <h3 className="text-lg font-medium">
-              {filteredRequests.length} Requests
-            </h3>
+            <div className="flex items-center gap-4">
+              <h3 className="text-lg font-medium">
+                {filteredRequests.length} Requests
+              </h3>
+              <div className="flex items-center text-sm text-neutral-500">
+                <Clock className="h-4 w-4 mr-1" />
+                <span>
+                  Updated{" "}
+                  {formatDistanceToNow(lastRefreshed, { addSuffix: true })}
+                </span>
+              </div>
+              <Button
+                variant={hasNewData ? "primary" : "outline"}
+                size="sm"
+                onClick={handleRefresh}
+                disabled={isRefreshing}
+                leftIcon={
+                  <RefreshCw
+                    className={`h-4 w-4 ${
+                      isRefreshing
+                        ? "animate-spin"
+                        : hasNewData
+                        ? "animate-pulse"
+                        : ""
+                    }`}
+                  />
+                }
+              >
+                {isRefreshing
+                  ? "Refreshing..."
+                  : hasNewData
+                  ? "New Data Available!"
+                  : "Refresh"}
+              </Button>
+            </div>
           </div>
 
           {filteredRequests.length > 0 ? (

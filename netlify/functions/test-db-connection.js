@@ -1,97 +1,106 @@
-const { pool, query } = require('./neon-client');
+const { testConnection, pool } = require("./neon-client");
 
 exports.handler = async (event, context) => {
   // Set CORS headers
   const headers = {
-    'Access-Control-Allow-Origin': '*',
-    'Access-Control-Allow-Headers': 'Content-Type',
-    'Access-Control-Allow-Methods': 'POST, OPTIONS',
-    'Content-Type': 'application/json'
+    "Access-Control-Allow-Origin": "*",
+    "Access-Control-Allow-Headers": "Content-Type",
+    "Access-Control-Allow-Methods": "GET, OPTIONS",
+    "Content-Type": "application/json",
   };
 
   // Handle preflight OPTIONS request
-  if (event.httpMethod === 'OPTIONS') {
+  if (event.httpMethod === "OPTIONS") {
     return {
       statusCode: 200,
       headers,
-      body: JSON.stringify({ message: 'Preflight call successful' }),
+      body: JSON.stringify({ message: "Preflight call successful" }),
+    };
+  }
+
+  // Only allow GET requests
+  if (event.httpMethod !== "GET") {
+    return {
+      statusCode: 405,
+      headers,
+      body: JSON.stringify({ message: "Method not allowed" }),
     };
   }
 
   try {
-    // Test database connection
-    const result = await query('SELECT NOW() as current_time');
+    console.log("Testing database connection...");
     
-    // Check if inventory_items table exists
-    const tablesResult = await query(`
-      SELECT table_name 
-      FROM information_schema.tables 
-      WHERE table_schema = 'public'
-    `);
+    // Get connection string details (safely)
+    const connectionString = process.env.NEON_CONNECTION_STRING;
+    const connectionStringInfo = {
+      available: !!connectionString,
+      length: connectionString ? connectionString.length : 0,
+      firstChars: connectionString ? connectionString.substring(0, 10) + "..." : "N/A",
+      containsNeon: connectionString ? connectionString.includes("neon") : false,
+      containsPostgresql: connectionString ? connectionString.includes("postgresql") : false,
+      envVarSet: !!process.env.NEON_CONNECTION_STRING,
+    };
     
-    const tables = tablesResult.rows.map(row => row.table_name);
+    console.log("Connection string info:", connectionStringInfo);
     
-    // Get schema for inventory_items if it exists
-    let inventoryItemsSchema = null;
-    if (tables.includes('inventory_items')) {
-      const schemaResult = await query(`
-        SELECT column_name, data_type 
-        FROM information_schema.columns 
-        WHERE table_name = 'inventory_items'
-      `);
-      inventoryItemsSchema = schemaResult.rows;
+    // Test the connection
+    const connectionResult = await testConnection();
+    console.log("Connection test result:", connectionResult);
+    
+    // Check if pool is initialized
+    const poolInfo = {
+      initialized: !!pool,
+      poolObject: pool ? "Available" : "Not available",
+    };
+    
+    // Try a simple query if pool is available
+    let queryResult = null;
+    if (pool) {
+      try {
+        console.log("Attempting a simple query...");
+        const result = await pool.query("SELECT NOW()");
+        queryResult = {
+          success: true,
+          timestamp: result.rows[0].now,
+        };
+        console.log("Query successful:", queryResult);
+      } catch (queryError) {
+        queryResult = {
+          success: false,
+          error: queryError.message,
+          code: queryError.code,
+        };
+        console.error("Query failed:", queryError);
+      }
     }
     
-    // Get schema for categories if it exists
-    let categoriesSchema = null;
-    if (tables.includes('categories')) {
-      const schemaResult = await query(`
-        SELECT column_name, data_type 
-        FROM information_schema.columns 
-        WHERE table_name = 'categories'
-      `);
-      categoriesSchema = schemaResult.rows;
-    }
-    
-    // Get sample data from inventory_items if it exists
-    let inventoryItemsSample = null;
-    if (tables.includes('inventory_items')) {
-      const sampleResult = await query(`
-        SELECT * FROM inventory_items LIMIT 5
-      `);
-      inventoryItemsSample = sampleResult.rows;
-    }
-    
-    // Get sample data from categories if it exists
-    let categoriesSample = null;
-    if (tables.includes('categories')) {
-      const sampleResult = await query(`
-        SELECT * FROM categories LIMIT 5
-      `);
-      categoriesSample = sampleResult.rows;
-    }
-
+    // Return all the diagnostic information
     return {
       statusCode: 200,
       headers,
       body: JSON.stringify({
-        message: 'Database connection successful',
-        currentTime: result.rows[0].current_time,
-        tables,
-        inventoryItemsSchema,
-        categoriesSchema,
-        inventoryItemsSample,
-        categoriesSample
-      }),
+        timestamp: new Date().toISOString(),
+        connectionStringInfo,
+        connectionResult,
+        poolInfo,
+        queryResult,
+        environment: {
+          nodeEnv: process.env.NODE_ENV,
+          netlifyDev: process.env.NETLIFY_DEV,
+          netlifyContext: process.env.CONTEXT,
+        },
+      }, null, 2),
     };
   } catch (error) {
-    console.error('Database connection error:', error);
+    console.error("Error testing database connection:", error);
+    
     return {
       statusCode: 500,
       headers,
-      body: JSON.stringify({ 
-        message: 'Database connection error', 
-        error: error.message 
+      body: JSON.stringify({
+        message: "Error testing database connection",
+        error: error.message,
+        stack: process.env.NODE_ENV === "development" ? error.stack : undefined,
       }),
     };
   }

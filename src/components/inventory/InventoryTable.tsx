@@ -21,6 +21,7 @@ import { Modal } from "../ui/Modal";
 import { ExcelImporter } from "./ExcelImporter";
 import { useLocation } from "react-router-dom";
 import { useAuth } from "../../context/AuthContext";
+import { isAdminOrManager } from "../../utils/permissions";
 
 interface InventoryTableProps {
   onEditItem: (item: InventoryItem) => void;
@@ -44,7 +45,8 @@ export const InventoryTable: React.FC<InventoryTableProps> = ({
   const [showLowStockOnly, setShowLowStockOnly] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
 
-  const isAdminOrManager = user?.role === "admin" || user?.role === "manager";
+  // Check if the user has admin or manager permissions
+  const userIsAdminOrManager = isAdminOrManager(user?.role);
 
   // Check if we're coming from the dashboard with low stock filter
   useEffect(() => {
@@ -54,6 +56,46 @@ export const InventoryTable: React.FC<InventoryTableProps> = ({
       window.history.replaceState({}, document.title);
     }
   }, [location]);
+
+  // Fetch inventory items when category changes
+  useEffect(() => {
+    if (selectedCategory !== "all") {
+      console.log("Fetching inventory items for category:", selectedCategory);
+      fetchInventoryItems(selectedCategory);
+    } else {
+      console.log("Fetching all inventory items");
+      fetchInventoryItems();
+    }
+  }, [selectedCategory]);
+
+  // Add debugging logs
+  console.log("Selected category:", selectedCategory);
+  console.log("Available categories:", categories);
+  console.log("Inventory items before filtering:", inventoryItems);
+
+  // Check if we have categories, if not use mock categories
+  if (categories.length === 0) {
+    console.log("No categories available, using mock categories for filtering");
+    // We don't modify the categories array directly as it's managed by the context
+    // but we can use this information for better error handling
+  }
+
+  // Check for "Cleaning Supplies" category
+  const cleaningCategory = categories.find(
+    (c) => c.name === "Cleaning" || c.name === "Cleaning Supplies"
+  );
+  if (cleaningCategory) {
+    console.log("Found Cleaning category:", cleaningCategory);
+    console.log(
+      "Items in Cleaning category:",
+      inventoryItems.filter(
+        (item) =>
+          item.categoryId === cleaningCategory.id ||
+          item.categoryName === "Cleaning" ||
+          item.categoryName === "Cleaning Supplies"
+      )
+    );
+  }
 
   // Filter items based on search query, category, and low stock
   const filteredItems = inventoryItems.filter((item) => {
@@ -66,9 +108,32 @@ export const InventoryTable: React.FC<InventoryTableProps> = ({
         ?.name.toLowerCase()
         .includes(searchQuery.toLowerCase());
 
-    // Apply category filter
+    // Apply category filter with improved matching
+    // Get the selected category object if not "all"
+    const selectedCategoryObj =
+      selectedCategory !== "all"
+        ? categories.find((c) => c.id === selectedCategory)
+        : null;
+
     const matchesCategory =
-      selectedCategory === "all" || item.categoryId === selectedCategory;
+      selectedCategory === "all" ||
+      // Direct ID match
+      item.categoryId === selectedCategory ||
+      // String comparison for IDs
+      (item.categoryId &&
+        selectedCategory &&
+        item.categoryId.toString() === selectedCategory.toString()) ||
+      // Match by category name if we have both
+      (selectedCategoryObj &&
+        item.categoryName &&
+        item.categoryName.toLowerCase() ===
+          selectedCategoryObj.name.toLowerCase()) ||
+      // Special case for "cleaning-supplies"
+      (selectedCategory === "cleaning-supplies" &&
+        (item.categoryName === "Cleaning" ||
+          item.categoryName === "Cleaning Supplies" ||
+          item.categoryId === "2" || // Common ID for cleaning in mock data
+          (cleaningCategory && item.categoryId === cleaningCategory.id)));
 
     // Apply low stock filter
     const matchesLowStock = showLowStockOnly
@@ -78,12 +143,31 @@ export const InventoryTable: React.FC<InventoryTableProps> = ({
     return matchesSearch && matchesCategory && matchesLowStock;
   });
 
+  // Log filtered results
+  console.log("Filtered items:", filteredItems);
+
   const handleImportFromExcel = () => {
     setShowImportModal(true);
   };
 
   const handleImportSuccess = () => {
-    fetchInventoryItems();
+    console.log("Import success callback triggered in InventoryTable");
+    // Force a refresh of the inventory items with the current category filter
+    if (selectedCategory !== "all") {
+      console.log("Refreshing inventory items for category:", selectedCategory);
+      fetchInventoryItems(selectedCategory);
+    } else {
+      console.log("Refreshing all inventory items");
+      fetchInventoryItems();
+    }
+
+    // Add a second refresh after a delay to ensure all database operations complete
+    setTimeout(() => {
+      console.log("Performing delayed refresh after import");
+      fetchInventoryItems(
+        selectedCategory !== "all" ? selectedCategory : undefined
+      );
+    }, 2000);
   };
 
   const handleExportToExcel = () => {
@@ -92,7 +176,7 @@ export const InventoryTable: React.FC<InventoryTableProps> = ({
   };
 
   const handleDeleteItem = async (item: InventoryItem) => {
-    if (!isAdminOrManager) {
+    if (!userIsAdminOrManager) {
       alert("Only administrators and managers can delete inventory items");
       return;
     }
@@ -120,8 +204,33 @@ export const InventoryTable: React.FC<InventoryTableProps> = ({
     }
   };
 
-  const getCategoryName = (categoryId: string) => {
-    return categories.find((c) => c.id === categoryId)?.name || "Unknown";
+  const getCategoryName = (categoryId: string | number) => {
+    // If the item already has a categoryName property, use that
+    const item = inventoryItems.find(
+      (i) =>
+        i.categoryId === categoryId ||
+        i.categoryId?.toString() === categoryId?.toString()
+    );
+    if (item?.categoryName) {
+      return item.categoryName;
+    }
+
+    // Otherwise, look up the category in the categories array
+    const category = categories.find(
+      (c) => c.id === categoryId || c.id?.toString() === categoryId?.toString()
+    );
+
+    if (category) {
+      return category.name;
+    }
+
+    // Log the issue for debugging
+    console.log(`Could not find category name for ID: ${categoryId}`, {
+      availableCategories: categories.map((c) => ({ id: c.id, name: c.name })),
+      categoryIdType: typeof categoryId,
+    });
+
+    return "Unknown";
   };
 
   return (
@@ -141,13 +250,48 @@ export const InventoryTable: React.FC<InventoryTableProps> = ({
             <Select
               options={[
                 { value: "all", label: "All Categories" },
-                ...categories.map((category) => ({
-                  value: category.id,
-                  label: category.name,
-                })),
+                ...(categories.length > 0
+                  ? categories.map((category) => ({
+                      value: category.id,
+                      label: category.name,
+                    }))
+                  : [
+                      { value: "1", label: "Office" },
+                      { value: "2", label: "Cleaning" },
+                      { value: "3", label: "Hardware" },
+                      { value: "4", label: "Other" },
+                    ]),
+                // Add special case for Cleaning Supplies if it doesn't exist
+                ...(categories.some(
+                  (c) => c.name === "Cleaning" || c.name === "Cleaning Supplies"
+                )
+                  ? []
+                  : [
+                      {
+                        value: "cleaning-supplies",
+                        label: "Cleaning Supplies",
+                      },
+                    ]),
               ]}
               value={selectedCategory}
-              onChange={setSelectedCategory}
+              onChange={(value) => {
+                console.log("Category changed to:", value);
+
+                // Special handling for "Cleaning Supplies"
+                if (value === "Cleaning Supplies" && cleaningCategory) {
+                  console.log(
+                    "Converting 'Cleaning Supplies' to actual category ID:",
+                    cleaningCategory.id
+                  );
+                  value = cleaningCategory.id;
+                }
+
+                console.log(
+                  "Items with this category:",
+                  inventoryItems.filter((item) => item.categoryId === value)
+                );
+                setSelectedCategory(value);
+              }}
               placeholder="Filter by category"
             />
           </div>
@@ -185,21 +329,25 @@ export const InventoryTable: React.FC<InventoryTableProps> = ({
           </div>
         </div>
         <div className="flex space-x-2">
-          <Button
-            variant="outline"
-            leftIcon={<Upload className="h-4 w-4" />}
-            onClick={handleImportFromExcel}
-            className="bg-white"
-          >
-            Import from Excel
-          </Button>
-          <Button
-            variant="primary"
-            leftIcon={<Plus className="h-4 w-4" />}
-            onClick={onAddItem}
-          >
-            Add New Item
-          </Button>
+          {userIsAdminOrManager && (
+            <>
+              <Button
+                variant="outline"
+                leftIcon={<Upload className="h-4 w-4" />}
+                onClick={handleImportFromExcel}
+                className="bg-white"
+              >
+                Import from Excel
+              </Button>
+              <Button
+                variant="primary"
+                leftIcon={<Plus className="h-4 w-4" />}
+                onClick={onAddItem}
+              >
+                Add New Item
+              </Button>
+            </>
+          )}
         </div>
       </div>
 
@@ -258,14 +406,16 @@ export const InventoryTable: React.FC<InventoryTableProps> = ({
               ? "Try adjusting your filters to find what you're looking for."
               : "Add some items to get started."}
           </p>
-          <Button
-            variant="primary"
-            className="mt-4"
-            onClick={onAddItem}
-            leftIcon={<Plus className="h-4 w-4" />}
-          >
-            Add New Item
-          </Button>
+          {userIsAdminOrManager && (
+            <Button
+              variant="primary"
+              className="mt-4"
+              onClick={onAddItem}
+              leftIcon={<Plus className="h-4 w-4" />}
+            >
+              Add New Item
+            </Button>
+          )}
         </div>
       ) : viewMode === "table" ? (
         // Table View
@@ -338,41 +488,42 @@ export const InventoryTable: React.FC<InventoryTableProps> = ({
                   </td>
                   <td className="px-6 py-4 text-center">
                     <div className="text-sm text-neutral-900">
-                      {Number(item.quantityAvailable) || 0}
+                      {item.quantityAvailable}
                     </div>
                   </td>
                   <td className="px-6 py-4 text-center">
                     <div className="text-sm text-neutral-900">
-                      {Number(item.quantityReserved) || 0}
+                      {item.quantityReserved}
                     </div>
                   </td>
                   <td className="px-6 py-4 text-center">
                     <div className="text-sm font-medium text-neutral-900">
-                      {(Number(item.quantityAvailable) || 0) +
-                        (Number(item.quantityReserved) || 0)}
+                      {item.quantityAvailable + item.quantityReserved}
                     </div>
                   </td>
                   <td className="px-6 py-4 text-right">
                     <div className="flex justify-end space-x-1">
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => onEditItem(item)}
-                        className="text-primary-600 hover:text-primary-900"
-                        title="Edit Item"
-                      >
-                        <Edit className="h-4 w-4 text-blue-500" />
-                      </Button>
-                      {isAdminOrManager && (
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => handleDeleteItem(item)}
-                          className="text-error-600 hover:text-error-900"
-                          title="Delete Item"
-                        >
-                          <Trash2 className="h-4 w-4 text-red-500" />
-                        </Button>
+                      {userIsAdminOrManager && (
+                        <>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => onEditItem(item)}
+                            className="text-primary-600 hover:text-primary-900"
+                            title="Edit Item"
+                          >
+                            <Edit className="h-4 w-4 text-blue-500" />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => handleDeleteItem(item)}
+                            className="text-error-600 hover:text-error-900"
+                            title="Delete Item"
+                          >
+                            <Trash2 className="h-4 w-4 text-red-500" />
+                          </Button>
+                        </>
                       )}
                     </div>
                   </td>

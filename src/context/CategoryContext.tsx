@@ -67,8 +67,15 @@ export const CategoryProvider: React.FC<CategoryProviderProps> = ({
           throw new Error(`API endpoint failed with status ${response.status}`);
         }
 
-        const data = await response.json();
-        console.log(`Successfully fetched ${data.length} categories from API`);
+        const responseData = await response.json();
+
+        // Handle both formats: array or {categories: array}
+        const categories = responseData.categories || responseData;
+
+        console.log(
+          `Successfully fetched ${categories.length} categories from API`
+        );
+        console.log("Response format:", responseData);
 
         // Get item counts for each category
         const inventoryResponse = await fetch("/api/inventory", {
@@ -82,10 +89,16 @@ export const CategoryProvider: React.FC<CategoryProviderProps> = ({
         });
 
         if (inventoryResponse.ok) {
-          const inventoryItems = await inventoryResponse.json();
+          const inventoryResponseData = await inventoryResponse.json();
+
+          // Handle both formats: array or {items: array}
+          const inventoryItems =
+            inventoryResponseData.items || inventoryResponseData;
+
           console.log(
             `Fetched ${inventoryItems.length} inventory items to count per category`
           );
+          console.log("Inventory response format:", inventoryResponseData);
 
           // Calculate item counts for each category
           const categoryCounts = inventoryItems.reduce(
@@ -100,12 +113,12 @@ export const CategoryProvider: React.FC<CategoryProviderProps> = ({
           );
 
           // Add itemCount to each category
-          data.forEach((category: Category) => {
+          categories.forEach((category: Category) => {
             category.itemCount = categoryCounts[category.id?.toString()] || 0;
           });
         }
 
-        setCategories(data);
+        setCategories(categories);
         return;
       } catch (apiError) {
         console.error("Error fetching from API endpoint:", apiError);
@@ -130,10 +143,15 @@ export const CategoryProvider: React.FC<CategoryProviderProps> = ({
           );
         }
 
-        const data = await dbResponse.json();
+        const responseData = await dbResponse.json();
+
+        // Handle both formats: array or {categories: array}
+        const categories = responseData.categories || responseData;
+
         console.log(
-          `Successfully fetched ${data.length} categories from DB endpoint`
+          `Successfully fetched ${categories.length} categories from DB endpoint`
         );
+        console.log("Response format:", responseData);
 
         // Get item counts for each category
         const inventoryResponse = await fetch("/db/inventory", {
@@ -147,10 +165,16 @@ export const CategoryProvider: React.FC<CategoryProviderProps> = ({
         });
 
         if (inventoryResponse.ok) {
-          const inventoryItems = await inventoryResponse.json();
+          const inventoryResponseData = await inventoryResponse.json();
+
+          // Handle both formats: array or {items: array}
+          const inventoryItems =
+            inventoryResponseData.items || inventoryResponseData;
+
           console.log(
             `Fetched ${inventoryItems.length} inventory items to count per category`
           );
+          console.log("Inventory response format:", inventoryResponseData);
 
           // Calculate item counts for each category
           const categoryCounts = inventoryItems.reduce(
@@ -165,12 +189,12 @@ export const CategoryProvider: React.FC<CategoryProviderProps> = ({
           );
 
           // Add itemCount to each category
-          data.forEach((category: Category) => {
+          categories.forEach((category: Category) => {
             category.itemCount = categoryCounts[category.id?.toString()] || 0;
           });
         }
 
-        setCategories(data);
+        setCategories(categories);
         return;
       } catch (dbError) {
         console.error("Error fetching from DB endpoint:", dbError);

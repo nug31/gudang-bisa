@@ -1,5 +1,13 @@
-import React, { useState, useRef } from "react";
-import { Upload, X, Check, AlertCircle, FileText, Plus } from "lucide-react";
+import React, { useState, useRef, useEffect } from "react";
+import {
+  Upload,
+  X,
+  Check,
+  AlertCircle,
+  FileText,
+  Plus,
+  RefreshCw,
+} from "lucide-react";
 import { Button } from "../ui/Button";
 import { useInventory } from "../../context/InventoryContext";
 import { InventoryItem } from "../../types/inventory";
@@ -32,9 +40,26 @@ export const ExcelImporter: React.FC<ExcelImporterProps> = ({
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [showCategoryModal, setShowCategoryModal] = useState(false);
   const [hasCategoryError, setHasCategoryError] = useState(false);
+  const [importedItems, setImportedItems] = useState<InventoryItem[]>([]);
 
-  const { createInventoryItem } = useInventory();
+  const { createInventoryItem, fetchInventoryItems } = useInventory();
   const { categories, fetchCategories } = useCategories();
+
+  // Force refresh inventory items when import is complete
+  useEffect(() => {
+    if (result && result.success > 0) {
+      console.log(
+        `Import complete with ${result.success} successful items. Refreshing inventory...`
+      );
+      // Delay the refresh slightly to ensure database operations complete
+      const refreshTimer = setTimeout(() => {
+        fetchInventoryItems();
+        console.log("Inventory refreshed after import");
+      }, 1000);
+
+      return () => clearTimeout(refreshTimer);
+    }
+  }, [result, fetchInventoryItems]);
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const selectedFile = e.target.files?.[0];
@@ -232,8 +257,9 @@ export const ExcelImporter: React.FC<ExcelImporterProps> = ({
           }
 
           // Set category ID and name
+          // For numeric category IDs, we'll pass the number directly
+          // The server will handle the conversion to UUID
           item.categoryId = category.id;
-          item.categoryName = category.name;
 
           // Create inventory item
           console.log(
@@ -244,6 +270,8 @@ export const ExcelImporter: React.FC<ExcelImporterProps> = ({
             console.log(
               `Successfully created item: ${createdItem.name} with ID: ${createdItem.id}`
             );
+            // Add to our local list of imported items
+            setImportedItems((prev) => [...prev, createdItem]);
             result.success++;
           } catch (createError) {
             console.error(`Error creating item ${item.name}:`, createError);
@@ -267,7 +295,18 @@ export const ExcelImporter: React.FC<ExcelImporterProps> = ({
       setHasCategoryError(hasCategoryErrors);
       setResult(result);
 
+      // Log the imported items for debugging
+      console.log(
+        `Import complete. Successfully imported ${result.success} items:`,
+        importedItems
+      );
+
       if (result.success > 0) {
+        // Force a refresh of the inventory items
+        await fetchInventoryItems();
+        console.log("Inventory refreshed immediately after import");
+
+        // Call the success callback
         onSuccess();
       }
     } catch (error) {
@@ -491,7 +530,19 @@ export const ExcelImporter: React.FC<ExcelImporterProps> = ({
         </div>
       ) : null}
 
-      <div className="flex justify-end mt-4">
+      <div className="flex justify-between mt-4">
+        <Button
+          type="button"
+          variant="outline"
+          onClick={() => {
+            // Force refresh inventory before closing
+            fetchInventoryItems();
+            console.log("Refreshing inventory before closing");
+          }}
+          leftIcon={<RefreshCw className="h-4 w-4" />}
+        >
+          Refresh Inventory
+        </Button>
         <Button type="button" onClick={onClose}>
           Close
         </Button>

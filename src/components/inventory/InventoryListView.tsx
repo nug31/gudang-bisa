@@ -23,11 +23,24 @@ export const InventoryListView: React.FC = () => {
   };
 
   const handleAddSuccess = (item: InventoryItem) => {
+    console.log("New item added successfully:", item);
+    // Close the modal
     setShowAddModal(false);
+    // Refresh the inventory list to show the new item
+    fetchInventoryItems();
+    // Add a delayed refresh to ensure database operations complete
+    setTimeout(() => {
+      console.log("Performing delayed refresh after adding item");
+      fetchInventoryItems();
+    }, 1000);
   };
 
   const handleEditSuccess = (item: InventoryItem) => {
+    console.log("Item updated successfully:", item);
+    // Close the modal
     setShowEditModal(false);
+    // Refresh the inventory list to show the updated item
+    fetchInventoryItems();
   };
 
   const handleRetry = () => {

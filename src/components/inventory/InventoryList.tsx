@@ -86,12 +86,14 @@ export const InventoryList: React.FC<InventoryListProps> = ({
     fetchInventory();
   }, [selectedCategory]);
 
-  const filteredItems = inventoryItems.filter(
-    (item) =>
-      item.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      item.description?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      item.sku?.toLowerCase().includes(searchTerm.toLowerCase())
-  );
+  const filteredItems = Array.isArray(inventoryItems)
+    ? inventoryItems.filter(
+        (item) =>
+          item.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+          item.description?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+          item.sku?.toLowerCase().includes(searchTerm.toLowerCase())
+      )
+    : [];
 
   const handleSelectItem = (item: InventoryItem) => {
     if (onSelectItem && showSelection) {
@@ -127,11 +129,12 @@ export const InventoryList: React.FC<InventoryListProps> = ({
               className="pl-9 pr-4 py-2 text-sm border border-neutral-200 rounded-md focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent appearance-none"
             >
               <option value="">All Categories</option>
-              {categories.map((category) => (
-                <option key={category.id} value={category.id}>
-                  {category.name}
-                </option>
-              ))}
+              {Array.isArray(categories) &&
+                categories.map((category) => (
+                  <option key={category.id} value={category.id}>
+                    {category.name}
+                  </option>
+                ))}
             </select>
           </div>
         </div>
@@ -184,94 +187,95 @@ export const InventoryList: React.FC<InventoryListProps> = ({
                 </tr>
               </thead>
               <tbody>
-                {filteredItems.map((item) => (
-                  <tr
-                    key={item.id}
-                    className={`border-b border-neutral-200 hover:bg-neutral-50 ${
-                      showSelection && item.quantityAvailable > 0
-                        ? "cursor-pointer"
-                        : ""
-                    }`}
-                    onClick={() =>
-                      showSelection &&
-                      item.quantityAvailable > 0 &&
-                      handleSelectItem(item)
-                    }
-                  >
-                    <td className="px-4 py-4">
-                      <div className="flex items-center">
-                        {item.imageUrl ? (
-                          <img
-                            src={item.imageUrl}
-                            alt={item.name}
-                            className="w-10 h-10 rounded-md object-cover mr-3"
-                          />
-                        ) : (
-                          <div className="w-10 h-10 rounded-md bg-neutral-200 flex items-center justify-center mr-3">
-                            <Box className="h-5 w-5 text-neutral-500" />
-                          </div>
-                        )}
-                        <div>
-                          <div className="font-medium text-neutral-900">
-                            {item.name}
-                          </div>
-                          {item.description && (
-                            <div className="text-sm text-neutral-500 truncate max-w-xs">
-                              {item.description}
+                {Array.isArray(filteredItems) &&
+                  filteredItems.map((item) => (
+                    <tr
+                      key={item.id}
+                      className={`border-b border-neutral-200 hover:bg-neutral-50 ${
+                        showSelection && item.quantityAvailable > 0
+                          ? "cursor-pointer"
+                          : ""
+                      }`}
+                      onClick={() =>
+                        showSelection &&
+                        item.quantityAvailable > 0 &&
+                        handleSelectItem(item)
+                      }
+                    >
+                      <td className="px-4 py-4">
+                        <div className="flex items-center">
+                          {item.imageUrl ? (
+                            <img
+                              src={item.imageUrl}
+                              alt={item.name}
+                              className="w-10 h-10 rounded-md object-cover mr-3"
+                            />
+                          ) : (
+                            <div className="w-10 h-10 rounded-md bg-neutral-200 flex items-center justify-center mr-3">
+                              <Box className="h-5 w-5 text-neutral-500" />
                             </div>
                           )}
+                          <div>
+                            <div className="font-medium text-neutral-900">
+                              {item.name}
+                            </div>
+                            {item.description && (
+                              <div className="text-sm text-neutral-500 truncate max-w-xs">
+                                {item.description}
+                              </div>
+                            )}
+                          </div>
                         </div>
-                      </div>
-                    </td>
-                    <td className="px-4 py-4 text-neutral-600">
-                      {item.categoryName}
-                    </td>
-                    <td className="px-4 py-4 text-neutral-600 font-mono text-sm">
-                      {item.sku || "-"}
-                    </td>
-                    <td className="px-4 py-4 text-right">
-                      <Badge
-                        variant={
-                          item.quantityAvailable > 0 ? "success" : "danger"
-                        }
-                        size="sm"
-                      >
-                        {item.quantityAvailable}
-                      </Badge>
-                    </td>
-                    <td className="px-4 py-4 text-right font-medium text-neutral-600">
-                      {item.quantityReserved > 0 ? (
-                        <Badge variant="warning" size="sm">
-                          {item.quantityReserved}
-                        </Badge>
-                      ) : (
-                        <span>0</span>
-                      )}
-                    </td>
-                    <td className="px-4 py-4 text-right font-medium text-neutral-600">
-                      {item.unitPrice ? `$${item.unitPrice.toFixed(2)}` : "-"}
-                    </td>
-                    {showSelection && (
-                      <td className="px-4 py-4 text-center">
-                        <Button
+                      </td>
+                      <td className="px-4 py-4 text-neutral-600">
+                        {item.categoryName}
+                      </td>
+                      <td className="px-4 py-4 text-neutral-600 font-mono text-sm">
+                        {item.sku || "-"}
+                      </td>
+                      <td className="px-4 py-4 text-right">
+                        <Badge
                           variant={
-                            item.quantityAvailable > 0 ? "primary" : "ghost"
+                            item.quantityAvailable > 0 ? "success" : "danger"
                           }
                           size="sm"
-                          disabled={item.quantityAvailable === 0}
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            if (item.quantityAvailable > 0) {
-                              handleSelectItem(item);
-                            }
-                          }}
                         >
-                          Select
-                        </Button>
+                          {item.quantityAvailable}
+                        </Badge>
                       </td>
-                    )}
-                  </tr>
-                ))}
+                      <td className="px-4 py-4 text-right font-medium text-neutral-600">
+                        {item.quantityReserved > 0 ? (
+                          <Badge variant="warning" size="sm">
+                            {item.quantityReserved}
+                          </Badge>
+                        ) : (
+                          <span>0</span>
+                        )}
+                      </td>
+                      <td className="px-4 py-4 text-right font-medium text-neutral-600">
+                        {item.unitPrice ? `$${item.unitPrice.toFixed(2)}` : "-"}
+                      </td>
+                      {showSelection && (
+                        <td className="px-4 py-4 text-center">
+                          <Button
+                            variant={
+                              item.quantityAvailable > 0 ? "primary" : "ghost"
+                            }
+                            size="sm"
+                            disabled={item.quantityAvailable === 0}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              if (item.quantityAvailable > 0) {
+                                handleSelectItem(item);
+                              }
+                            }}
+                          >
+                            Select
+                          </Button>
+                        </td>
+                      )}
+                    </tr>
+                  ))}
               </tbody>
             </table>
           </div>

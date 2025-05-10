@@ -23,11 +23,20 @@ export const Header: React.FC = () => {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [userMenuOpen, setUserMenuOpen] = useState(false);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
+  const [userName, setUserName] = useState<string>("");
 
   const { user, logout } = useAuth();
   const { notifications, unreadCount, markAsRead, markAllAsRead } =
     useNotifications();
   const navigate = useNavigate();
+
+  // Update userName when user changes
+  useEffect(() => {
+    if (user) {
+      setUserName(user.name);
+      console.log("Header: User name updated to", user.name);
+    }
+  }, [user]);
 
   // Close mobile menu when window is resized to desktop size
   useEffect(() => {
@@ -132,7 +141,7 @@ export const Header: React.FC = () => {
                   }
                 >
                   <Boxes className="h-4 w-4 mr-2 icon-3d navbar-icon" />
-                  Inventory Items
+                  Browse Items
                 </Link>
                 <Link
                   to="/requests"
@@ -160,19 +169,22 @@ export const Header: React.FC = () => {
                   <Boxes className="h-4 w-4 mr-2 icon-3d navbar-icon" />
                   New Order
                 </Link>
-                <Link
-                  to="/inventory"
-                  className="inline-flex items-center px-3 py-2 text-sm font-medium text-neutral-600 border-b-2 border-transparent hover:border-primary-400 hover:text-primary-500 transition-all rounded-md hover:bg-neutral-50 tilt-3d"
-                  style={
-                    {
-                      "--rotateX": "2deg",
-                      "--rotateY": "5deg",
-                    } as React.CSSProperties
-                  }
-                >
-                  <Warehouse className="h-4 w-4 mr-2 icon-3d navbar-icon" />
-                  Stock Management
-                </Link>
+                {/* Show inventory management link for both admin and manager roles */}
+                {(user?.role === "admin" || user?.role === "manager") && (
+                  <Link
+                    to="/inventory"
+                    className="inline-flex items-center px-3 py-2 text-sm font-medium text-neutral-600 border-b-2 border-transparent hover:border-primary-400 hover:text-primary-500 transition-all rounded-md hover:bg-neutral-50 tilt-3d"
+                    style={
+                      {
+                        "--rotateX": "2deg",
+                        "--rotateY": "5deg",
+                      } as React.CSSProperties
+                    }
+                  >
+                    <Warehouse className="h-4 w-4 mr-2 icon-3d navbar-icon" />
+                    Stock Management
+                  </Link>
+                )}
                 {user?.role === "admin" && (
                   <Link
                     to="/admin"
@@ -305,14 +317,14 @@ export const Header: React.FC = () => {
                     <div className="relative">
                       <Avatar
                         src={user.avatarUrl}
-                        name={user.name}
+                        name={userName}
                         size="sm"
                         className="icon-3d"
                       />
                       <div className="absolute bottom-0 right-0 w-2 h-2 bg-success-400 rounded-full border border-white"></div>
                     </div>
                     <span className="ml-2 text-sm font-medium text-neutral-700 hidden sm:block">
-                      {user.name}
+                      {userName}
                     </span>
                     <ChevronDown
                       className="ml-1 h-4 w-4 text-neutral-500 hidden sm:block transition-transform duration-300"
@@ -331,12 +343,12 @@ export const Header: React.FC = () => {
                         <div className="flex items-center">
                           <Avatar
                             src={user.avatarUrl}
-                            name={user.name}
+                            name={userName}
                             size="md"
                           />
                           <div className="ml-3">
                             <p className="text-sm font-semibold text-neutral-900">
-                              {user.name}
+                              {userName}
                             </p>
                             <p className="text-xs text-neutral-500">
                               {user.email}
@@ -360,9 +372,6 @@ export const Header: React.FC = () => {
                           <span className="relative">
                             Profile
                             <span className="absolute -bottom-1 left-0 w-0 h-0.5 bg-primary-400 group-hover:w-full transition-all duration-300"></span>
-                          </span>
-                          <span className="ml-2 text-xs text-neutral-400">
-                            (View only)
                           </span>
                         </Link>
                         <button
@@ -466,18 +475,6 @@ export const Header: React.FC = () => {
                     <BarChart3 className="h-4 w-4 text-primary-500" />
                   </div>
                   Dashboard
-                </Link>
-
-                {/* Inventory Items link */}
-                <Link
-                  to="/browse"
-                  className="flex items-center pl-4 pr-4 py-3 text-base font-medium text-neutral-700 hover:bg-neutral-50 hover:text-primary-500 border-l-4 border-transparent hover:border-primary-500 transition-all"
-                  onClick={() => setMobileMenuOpen(false)}
-                >
-                  <div className="flex items-center justify-center w-8 h-8 rounded-full bg-primary-50 mr-3">
-                    <Boxes className="h-4 w-4 text-primary-500" />
-                  </div>
-                  Inventory Items
                 </Link>
 
                 {/* My Orders link */}
@@ -618,12 +615,12 @@ export const Header: React.FC = () => {
                       <div className="flex items-center">
                         <Avatar
                           src={user.avatarUrl}
-                          name={user.name}
+                          name={userName}
                           size="md"
                         />
                         <div className="ml-3">
                           <p className="text-sm font-semibold text-neutral-900">
-                            {user.name}
+                            {userName}
                           </p>
                           <p className="text-xs text-neutral-500">
                             {user.email}
@@ -636,7 +633,7 @@ export const Header: React.FC = () => {
                           className="flex-1 px-3 py-2 text-sm font-medium text-center text-neutral-700 bg-neutral-100 rounded-md hover:bg-neutral-200"
                           onClick={() => setMobileMenuOpen(false)}
                         >
-                          Profile (View only)
+                          Profile
                         </Link>
                         <button
                           onClick={() => {

@@ -4,7 +4,6 @@ import {
   PlusCircle,
   AlertTriangle,
   Clock,
-  Warehouse,
   BarChart3,
   TrendingUp,
   Boxes,
@@ -27,7 +26,7 @@ import {
   CardTitle,
 } from "../components/ui/Card";
 import { Card3D, Card3DHeader, Card3DContent } from "../components/ui/Card3D";
-import { DatabaseConnectionTest } from "../components/DatabaseConnectionTest";
+import { ensureArray, safeMap, safeFilter } from "../utils/arrayUtils";
 
 export const Dashboard: React.FC = () => {
   const { user } = useAuth();
@@ -97,8 +96,26 @@ export const Dashboard: React.FC = () => {
       }
 
       filtered = filtered.filter((req) => {
-        const reqDate = new Date(req.createdAt);
-        return reqDate >= startDate && reqDate <= now;
+        try {
+          // Check if createdAt exists and is a valid string
+          if (!req.createdAt || typeof req.createdAt !== "string") {
+            return false;
+          }
+
+          // Try to parse the date
+          const reqDate = new Date(req.createdAt);
+
+          // Check if the date is valid
+          if (isNaN(reqDate.getTime())) {
+            console.warn("Invalid date in request:", req.id, req.createdAt);
+            return false;
+          }
+
+          return reqDate >= startDate && reqDate <= now;
+        } catch (e) {
+          console.error("Error processing date filter:", e);
+          return false;
+        }
       });
     }
 
@@ -120,27 +137,60 @@ export const Dashboard: React.FC = () => {
   const { inventoryItems } = useInventory();
 
   // Get recent requests (last 5)
-  const recentRequests = [...userRequests]
-    .sort(
-      (a, b) =>
-        new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
-    )
+  const recentRequests = ensureArray(userRequests)
+    .sort((a, b) => {
+      try {
+        // Check if dates exist and are valid
+        if (!a.createdAt || !b.createdAt) {
+          return 0;
+        }
+
+        const dateA = new Date(a.createdAt);
+        const dateB = new Date(b.createdAt);
+
+        // Check if dates are valid
+        if (isNaN(dateA.getTime()) || isNaN(dateB.getTime())) {
+          return 0;
+        }
+
+        return dateB.getTime() - dateA.getTime();
+      } catch (e) {
+        console.error("Error sorting by date:", e);
+        return 0;
+      }
+    })
     .slice(0, 3);
 
   // Get pending requests for admin and manager
   const pendingRequests =
     user?.role === "admin" || user?.role === "manager"
-      ? requests
-          .filter((req) => req.status === "pending")
+      ? safeFilter(requests, (req) => req.status === "pending")
           .sort((a, b) => {
-            // Sort by critical first, then by creation date
-            if (a.priority === "critical" && b.priority !== "critical")
-              return -1;
-            if (a.priority !== "critical" && b.priority === "critical")
-              return 1;
-            return (
-              new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
-            );
+            try {
+              // Sort by critical first, then by creation date
+              if (a.priority === "critical" && b.priority !== "critical")
+                return -1;
+              if (a.priority !== "critical" && b.priority === "critical")
+                return 1;
+
+              // Check if dates exist and are valid
+              if (!a.createdAt || !b.createdAt) {
+                return 0;
+              }
+
+              const dateA = new Date(a.createdAt);
+              const dateB = new Date(b.createdAt);
+
+              // Check if dates are valid
+              if (isNaN(dateA.getTime()) || isNaN(dateB.getTime())) {
+                return 0;
+              }
+
+              return dateB.getTime() - dateA.getTime();
+            } catch (e) {
+              console.error("Error sorting pending requests:", e);
+              return 0;
+            }
           })
           .slice(0, 5)
       : [];
@@ -148,7 +198,8 @@ export const Dashboard: React.FC = () => {
   // Get critical items for admin and manager
   const criticalRequests =
     user?.role === "admin" || user?.role === "manager"
-      ? requests.filter(
+      ? safeFilter(
+          requests,
           (req) => req.priority === "critical" && req.status === "pending"
         )
       : [];
@@ -211,8 +262,10 @@ export const Dashboard: React.FC = () => {
           <div className="md:col-span-2 lg:col-span-1 order-first lg:order-none">
             <InventoryHealth
               lowStockCount={
-                inventoryItems.filter((item) => item.quantityAvailable < 5)
-                  .length
+                Array.isArray(inventoryItems)
+                  ? inventoryItems.filter((item) => item.quantityAvailable < 5)
+                      .length
+                  : 0
               }
               healthPercentage={85}
               inventoryItems={inventoryItems}
@@ -244,7 +297,7 @@ export const Dashboard: React.FC = () => {
             <Card3DContent>
               {recentRequests.length > 0 ? (
                 <div className="space-y-4">
-                  {recentRequests.map((request) => (
+                  {safeMap(recentRequests, (request) => (
                     <RequestCard key={request.id} request={request} />
                   ))}
                 </div>
@@ -295,7 +348,7 @@ export const Dashboard: React.FC = () => {
               <Card3DContent>
                 {pendingRequests.length > 0 ? (
                   <div className="space-y-4">
-                    {pendingRequests.map((request) => (
+                    {safeMap(pendingRequests, (request) => (
                       <RequestCard key={request.id} request={request} />
                     ))}
                   </div>

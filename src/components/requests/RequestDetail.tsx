@@ -99,13 +99,28 @@ export const RequestDetail: React.FC<RequestDetailProps> = ({
   };
 
   const handleApprove = async () => {
-    if (!user || (user.role !== "admin" && user.role !== "manager")) return;
+    // More robust role check with case insensitive comparison
+    const userRole = user?.role?.toLowerCase() || "";
+    const isAdminOrManager = userRole === "admin" || userRole === "manager";
+
+    console.log("Approving request - User:", user);
+    console.log("User role:", userRole, "Has permission:", isAdminOrManager);
+
+    if (!user || !isAdminOrManager) {
+      console.error("Permission denied: User is not admin or manager");
+      return;
+    }
 
     console.log("Approving request:", request.id);
 
     const updatedRequest = {
       ...request,
-      status: "approved",
+      status: "approved" as
+        | "draft"
+        | "pending"
+        | "approved"
+        | "rejected"
+        | "fulfilled",
       approvedAt: new Date().toISOString(),
       approvedBy: user.id,
     };
@@ -125,18 +140,28 @@ export const RequestDetail: React.FC<RequestDetailProps> = ({
   };
 
   const handleReject = async () => {
-    if (
-      !user ||
-      (user.role !== "admin" && user.role !== "manager") ||
-      !rejectionReason.trim()
-    )
+    // More robust role check with case insensitive comparison
+    const userRole = user?.role?.toLowerCase() || "";
+    const isAdminOrManager = userRole === "admin" || userRole === "manager";
+
+    console.log("Rejecting request - User:", user);
+    console.log("User role:", userRole, "Has permission:", isAdminOrManager);
+
+    if (!user || !isAdminOrManager || !rejectionReason.trim()) {
+      console.error("Permission denied or missing rejection reason");
       return;
+    }
 
     console.log("Rejecting request:", request.id);
 
     const updatedRequest = {
       ...request,
-      status: "rejected",
+      status: "rejected" as
+        | "draft"
+        | "pending"
+        | "approved"
+        | "rejected"
+        | "fulfilled",
       rejectedAt: new Date().toISOString(),
       rejectedBy: user.id,
       rejectionReason: rejectionReason,
@@ -160,13 +185,28 @@ export const RequestDetail: React.FC<RequestDetailProps> = ({
   };
 
   const handleFulfill = async () => {
-    if (!user || (user.role !== "admin" && user.role !== "manager")) return;
+    // More robust role check with case insensitive comparison
+    const userRole = user?.role?.toLowerCase() || "";
+    const isAdminOrManager = userRole === "admin" || userRole === "manager";
+
+    console.log("Fulfilling request - User:", user);
+    console.log("User role:", userRole, "Has permission:", isAdminOrManager);
+
+    if (!user || !isAdminOrManager) {
+      console.error("Permission denied: User is not admin or manager");
+      return;
+    }
 
     console.log("Fulfilling request:", request.id);
 
     const updatedRequest = {
       ...request,
-      status: "fulfilled",
+      status: "fulfilled" as
+        | "draft"
+        | "pending"
+        | "approved"
+        | "rejected"
+        | "fulfilled",
       fulfillmentDate: new Date().toISOString(),
     };
 
@@ -192,8 +232,10 @@ export const RequestDetail: React.FC<RequestDetailProps> = ({
   const canEdit =
     user?.id === request.userId &&
     ["draft", "pending"].includes(request.status);
-  const isAdmin = user?.role === "admin";
-  const isManager = user?.role === "manager";
+  // More robust role checks with case insensitive comparison
+  const userRole = user?.role?.toLowerCase() || "";
+  const isAdmin = userRole === "admin";
+  const isManager = userRole === "manager";
   const isAdminOrManager = isAdmin || isManager;
   const isPending = request.status === "pending";
   const isApproved = request.status === "approved";
@@ -206,9 +248,36 @@ export const RequestDetail: React.FC<RequestDetailProps> = ({
             <CardTitle className="text-2xl">{request.title}</CardTitle>
             <p className="text-neutral-500 mt-1">
               Submitted by {requestUser?.name} •{" "}
-              {formatDistanceToNow(new Date(request.createdAt), {
-                addSuffix: true,
-              })}
+              {(() => {
+                try {
+                  if (
+                    !request.createdAt ||
+                    typeof request.createdAt !== "string"
+                  ) {
+                    return "recently";
+                  }
+
+                  const date = new Date(request.createdAt);
+
+                  // Check if the date is valid
+                  if (isNaN(date.getTime())) {
+                    console.warn(
+                      "Invalid date for formatDistanceToNow in RequestDetail:",
+                      request.id,
+                      request.createdAt
+                    );
+                    return "recently";
+                  }
+
+                  return formatDistanceToNow(date, { addSuffix: true });
+                } catch (e) {
+                  console.error(
+                    "Error formatting distance to now in RequestDetail:",
+                    e
+                  );
+                  return "recently";
+                }
+              })()}
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
@@ -249,7 +318,36 @@ export const RequestDetail: React.FC<RequestDetailProps> = ({
                     <Calendar className="h-5 w-5 text-neutral-500 mr-2" />
                     <span className="text-sm text-neutral-700">
                       <span className="font-medium mr-2">Needed By:</span>
-                      {format(new Date(request.fulfillmentDate), "PPP")}
+                      {(() => {
+                        try {
+                          if (
+                            !request.fulfillmentDate ||
+                            typeof request.fulfillmentDate !== "string"
+                          ) {
+                            return "Unknown date";
+                          }
+
+                          const date = new Date(request.fulfillmentDate);
+
+                          // Check if the date is valid
+                          if (isNaN(date.getTime())) {
+                            console.warn(
+                              "Invalid fulfillment date in RequestDetail:",
+                              request.id,
+                              request.fulfillmentDate
+                            );
+                            return "Unknown date";
+                          }
+
+                          return format(date, "PPP");
+                        } catch (e) {
+                          console.error(
+                            "Error formatting fulfillment date in RequestDetail:",
+                            e
+                          );
+                          return "Unknown date";
+                        }
+                      })()}
                     </span>
                   </div>
                 )}
@@ -264,7 +362,36 @@ export const RequestDetail: React.FC<RequestDetailProps> = ({
                   <Clock className="h-5 w-5 text-neutral-500 mr-2" />
                   <span className="text-sm text-neutral-700">
                     <span className="font-medium mr-2">Created:</span>
-                    {format(new Date(request.createdAt), "PPP")}
+                    {(() => {
+                      try {
+                        if (
+                          !request.createdAt ||
+                          typeof request.createdAt !== "string"
+                        ) {
+                          return "Unknown date";
+                        }
+
+                        const date = new Date(request.createdAt);
+
+                        // Check if the date is valid
+                        if (isNaN(date.getTime())) {
+                          console.warn(
+                            "Invalid date for format in RequestDetail:",
+                            request.id,
+                            request.createdAt
+                          );
+                          return "Unknown date";
+                        }
+
+                        return format(date, "PPP");
+                      } catch (e) {
+                        console.error(
+                          "Error formatting date in RequestDetail:",
+                          e
+                        );
+                        return "Unknown date";
+                      }
+                    })()}
                   </span>
                 </div>
 
@@ -282,7 +409,36 @@ export const RequestDetail: React.FC<RequestDetailProps> = ({
                     <span className="text-sm text-neutral-700">
                       <span className="font-medium mr-2">Approved By:</span>
                       {approver.name} on{" "}
-                      {format(new Date(request.approvedAt), "PPP")}
+                      {(() => {
+                        try {
+                          if (
+                            !request.approvedAt ||
+                            typeof request.approvedAt !== "string"
+                          ) {
+                            return "Unknown date";
+                          }
+
+                          const date = new Date(request.approvedAt);
+
+                          // Check if the date is valid
+                          if (isNaN(date.getTime())) {
+                            console.warn(
+                              "Invalid approved date in RequestDetail:",
+                              request.id,
+                              request.approvedAt
+                            );
+                            return "Unknown date";
+                          }
+
+                          return format(date, "PPP");
+                        } catch (e) {
+                          console.error(
+                            "Error formatting approved date in RequestDetail:",
+                            e
+                          );
+                          return "Unknown date";
+                        }
+                      })()}
                     </span>
                   </div>
                 )}
@@ -294,7 +450,36 @@ export const RequestDetail: React.FC<RequestDetailProps> = ({
                       <span className="text-sm text-neutral-700">
                         <span className="font-medium mr-2">Rejected By:</span>
                         {rejecter.name} on{" "}
-                        {format(new Date(request.rejectedAt), "PPP")}
+                        {(() => {
+                          try {
+                            if (
+                              !request.rejectedAt ||
+                              typeof request.rejectedAt !== "string"
+                            ) {
+                              return "Unknown date";
+                            }
+
+                            const date = new Date(request.rejectedAt);
+
+                            // Check if the date is valid
+                            if (isNaN(date.getTime())) {
+                              console.warn(
+                                "Invalid rejected date in RequestDetail:",
+                                request.id,
+                                request.rejectedAt
+                              );
+                              return "Unknown date";
+                            }
+
+                            return format(date, "PPP");
+                          } catch (e) {
+                            console.error(
+                              "Error formatting rejected date in RequestDetail:",
+                              e
+                            );
+                            return "Unknown date";
+                          }
+                        })()}
                       </span>
                       {request.rejectionReason && (
                         <p className="text-sm text-neutral-600 mt-1">
@@ -421,9 +606,38 @@ export const RequestDetail: React.FC<RequestDetailProps> = ({
                           {commentUser?.name || "Unknown User"}
                         </span>
                         <span className="text-xs text-neutral-500 ml-2">
-                          {formatDistanceToNow(new Date(comment.createdAt), {
-                            addSuffix: true,
-                          })}
+                          {(() => {
+                            try {
+                              if (
+                                !comment.createdAt ||
+                                typeof comment.createdAt !== "string"
+                              ) {
+                                return "recently";
+                              }
+
+                              const date = new Date(comment.createdAt);
+
+                              // Check if the date is valid
+                              if (isNaN(date.getTime())) {
+                                console.warn(
+                                  "Invalid comment date in RequestDetail:",
+                                  comment.id,
+                                  comment.createdAt
+                                );
+                                return "recently";
+                              }
+
+                              return formatDistanceToNow(date, {
+                                addSuffix: true,
+                              });
+                            } catch (e) {
+                              console.error(
+                                "Error formatting comment date in RequestDetail:",
+                                e
+                              );
+                              return "recently";
+                            }
+                          })()}
                         </span>
                       </div>
                       <p className="text-neutral-700 mt-1">{comment.content}</p>

@@ -1,0 +1,2080 @@
+import express from "express";
+import mysql from "mysql2/promise";
+import pg from "pg";
+import { config } from "dotenv";
+import { v4 as uuidv4 } from "uuid";
+import cors from "cors";
+import bodyParser from "body-parser";
+import bcrypt from "bcryptjs";
+import mockPool from "./src/db/mock-db.js";
+
+// Load environment variables
+config();
+
+// Setup PostgreSQL connection for Neon (used for all database operations)
+const pgPool = new pg.Pool({
+  connectionString: process.env.NEON_CONNECTION_STRING,
+  ssl: {
+    rejectUnauthorized: false,
+  },
+  // Add connection pool settings for better reliability
+  max: 20,
+  idleTimeoutMillis: 30000,
+  connectionTimeoutMillis: 10000,
+});
+
+// Initialize pgcrypto extension for password hashing
+pgPool.query("CREATE EXTENSION IF NOT EXISTS pgcrypto").catch((err) => {
+  console.error("Error creating pgcrypto extension:", err);
+});
+
+// Test Neon connection on startup
+pgPool
+  .query("SELECT NOW()")
+  .then((result) => {
+    console.log("Neon PostgreSQL connection successful:", result.rows[0]);
+  })
+  .catch((err) => {
+    console.error("Error connecting to Neon PostgreSQL:", err);
+  });
+
+const app = express();
+const PORT = process.env.PORT || 3002;
+
+// Middleware
+app.use(
+  cors({
+    origin: [
+      "http://localhost:5173",
+      "http://127.0.0.1:5173",
+      "null",
+      "file://",
+    ],
+    credentials: true,
+  })
+);
+
+// Add CORS headers to all responses
+app.use((req, res, next) => {
+  console.log(`Incoming request: ${req.method} ${req.url}`);
+
+  // Set CORS headers
+  res.header("Access-Control-Allow-Origin", "*");
+  res.header(
+    "Access-Control-Allow-Headers",
+    "Origin, X-Requested-With, Content-Type, Accept"
+  );
+
+  // Handle preflight requests
+  if (req.method === "OPTIONS") {
+    console.log("Handling OPTIONS preflight request");
+    res.header(
+      "Access-Control-Allow-Methods",
+      "GET, POST, PUT, DELETE, OPTIONS"
+    );
+    return res.status(200).send();
+  }
+
+  next();
+});
+
+app.use(bodyParser.json());
+
+// Check if we should use mock database
+const useMockDb = process.env.USE_MOCK_DB === "true";
+console.log(`Database mode: ${useMockDb ? "MOCK DATABASE" : "REAL DATABASE"}`);
+
+// Create database connection pool - use pgPool for Neon PostgreSQL
+const pool = useMockDb ? mockPool : pgPool;
+
+// Test database connection
+app.get("/api/test-connection", async (req, res) => {
+  try {
+    console.log("Testing Neon PostgreSQL database connection");
+
+    // Test a simple query
+    try {
+      const result = await pool.query("SELECT NOW() as current_time");
+      console.log("Test query result:", result.rows[0]);
+
+      // Get table counts
+      const tablesResult = await pool.query(`
+        SELECT table_name
+        FROM information_schema.tables
+        WHERE table_schema = 'public'
+        ORDER BY table_name
+      `);
+
+      const tables = tablesResult.rows.map((row) => row.table_name);
+      console.log("Tables found:", tables);
+
+      // Get inventory items count
+      let inventoryCount = 0;
+      if (tables.includes("inventory_items")) {
+        const inventoryResult = await pool.query(
+          "SELECT COUNT(*) FROM inventory_items"
+        );
+        inventoryCount = parseInt(inventoryResult.rows[0].count, 10);
+        console.log(`Found ${inventoryCount} inventory items`);
+      }
+
+      res.json({
+        success: true,
+        message: "Database connected successfully",
+        tables,
+        counts: {
+          tables: tables.length,
+          inventoryItems: inventoryCount,
+        },
+      });
+    } catch (queryError) {
+      console.error("Error executing test query:", queryError);
+      throw queryError;
+    }
+  } catch (error) {
+    console.error("Error connecting to database:", error);
+    res.status(500).json({
+      success: false,
+      message: "Error connecting to database",
+      error: error.message,
+      stack: error.stack,
+    });
+  }
+});
+
+// Registration endpoint
+app.post("/api/register", async (req, res) => {
+  const { name, email, password, role, department } = req.body;
+  console.log("Registration attempt:", { name, email, role, department });
+
+  // Validate required fields
+  if (!name || !email || !password || !role) {
+    return res
+      .status(400)
+      .json({ message: "Name, email, password, and role are required" });
+  }
+
+  try {
+    // Check if email already exists
+    const emailCheckQuery = "SELECT id FROM users WHERE email = $1";
+    const emailCheckResult = await pool.query(emailCheckQuery, [email]);
+
+    if (emailCheckResult.rows.length > 0) {
+      return res.status(400).json({ message: "Email already exists" });
+    }
+
+    // Hash the password
+    const salt = await bcrypt.genSalt(10);
+    const hashedPassword = await bcrypt.hash(password, salt);
+
+    // Generate a new UUID for the user
+    const userId = uuidv4();
+
+    // Insert the new user
+    const insertQuery = `
+      INSERT INTO users (
+        id,
+        name,
+        email,
+        password,
+        role,
+        department,
+        created_at
+      ) VALUES ($1, $2, $3, $4, $5, $6, NOW())
+      RETURNING id, name, email, role, department, avatar_url as "avatarUrl", created_at as "createdAt"
+    `;
+
+    const insertResult = await pool.query(insertQuery, [
+      userId,
+      name,
+      email,
+      hashedPassword,
+      role,
+      department || null,
+    ]);
+
+    console.log(`Created new user: ${name} with ID ${userId}`);
+
+    res.status(201).json({
+      user: insertResult.rows[0],
+      message: "Registration successful",
+    });
+  } catch (error) {
+    console.error("Registration error:", error);
+    res.status(500).json({ message: "Server error", error: error.message });
+  }
+});
+
+// Login endpoint
+app.post("/api/login", async (req, res) => {
+  const { email, password } = req.body;
+  console.log("Login attempt:", {
+    email,
+    password: password ? "********" : undefined,
+  });
+
+  if (!email || !password) {
+    console.log("Missing email or password");
+    return res.status(400).json({ message: "Email and password are required" });
+  }
+
+  try {
+    // Find user by email
+    console.log(`Searching for user with email: ${email}`);
+    const userQuery = `
+      SELECT
+        id,
+        name,
+        email,
+        password,
+        role,
+        department,
+        avatar_url as "avatarUrl",
+        created_at as "createdAt"
+      FROM users
+      WHERE email = $1
+    `;
+
+    const userResult = await pool.query(userQuery, [email]);
+
+    if (userResult.rows.length === 0) {
+      console.log(`No user found with email: ${email}`);
+      return res.status(401).json({ message: "Invalid email or password" });
+    }
+
+    const user = userResult.rows[0];
+    const storedPassword = user.password;
+    console.log(`User found: ${user.name} (${user.email}), Role: ${user.role}`);
+    console.log(
+      `Stored password type: ${typeof storedPassword}, Starts with $: ${
+        storedPassword && storedPassword.startsWith("$")
+      }`
+    );
+
+    // Remove password from user object before sending to client
+    delete user.password;
+
+    // Check if the password is correct
+    // For backward compatibility, still accept 'password' as the password for all users
+    let isPasswordValid = password === "password";
+    console.log(`Password matches 'password': ${isPasswordValid}`);
+
+    // If the user has a hashed password, verify it
+    if (storedPassword && storedPassword.startsWith("$")) {
+      const bcryptResult = await bcrypt.compare(password, storedPassword);
+      console.log(`bcrypt comparison result: ${bcryptResult}`);
+      isPasswordValid = isPasswordValid || bcryptResult;
+    }
+
+    console.log(`Final password validation result: ${isPasswordValid}`);
+
+    if (!isPasswordValid) {
+      console.log("Password validation failed");
+      return res.status(401).json({ message: "Invalid email or password" });
+    }
+
+    console.log(`Login successful for user: ${user.email}`);
+    res.json({
+      user: user,
+      message: "Login successful",
+    });
+  } catch (error) {
+    console.error("Login error:", error);
+    res.status(500).json({ message: "Server error", error: error.message });
+  }
+});
+
+// Direct database access endpoint
+app.post("/db/requests", async (req, res) => {
+  const { action, id, request, comment } = req.body;
+  console.log(
+    "Request body for /db/requests:",
+    JSON.stringify(req.body, null, 2)
+  );
+
+  // Debug role information for troubleshooting
+  if (req.body.request && req.body.request.approvedBy) {
+    console.log("User ID for role check:", req.body.request.approvedBy);
+
+    try {
+      // Check user role (make it case-insensitive)
+      const roleCheckResponse = await pool.query(
+        "SELECT role FROM users WHERE id = $1",
+        [req.body.request.approvedBy]
+      );
+
+      if (roleCheckResponse.rows.length > 0) {
+        const userRole = roleCheckResponse.rows[0].role.toLowerCase();
+        console.log("User role from database:", roleCheckResponse.rows[0].role);
+        console.log("Normalized user role:", userRole);
+        console.log(
+          "Has admin/manager permission:",
+          userRole === "admin" || userRole === "manager"
+        );
+      } else {
+        console.log("User not found in database");
+      }
+    } catch (roleCheckError) {
+      console.error("Error checking user role:", roleCheckError);
+    }
+  }
+
+  try {
+    // For PostgreSQL, we don't need to get a connection from the pool for each query
+    // The pool will manage connections automatically
+
+    switch (action) {
+      case "getAll":
+        try {
+          // Get all requests
+          const requestsQuery = `
+            SELECT
+              ir.id,
+              ir.title,
+              ir.description,
+              c.id as category,
+              ir.priority,
+              ir.status,
+              ir.user_id as "userId",
+              ir.created_at as "createdAt",
+              ir.updated_at as "updatedAt",
+              ir.approved_at as "approvedAt",
+              ir.approved_by as "approvedBy",
+              ir.rejected_at as "rejectedAt",
+              ir.rejected_by as "rejectedBy",
+              ir.rejection_reason as "rejectionReason",
+              ir.fulfillment_date as "fulfillmentDate",
+              ir.quantity
+            FROM item_requests ir
+            JOIN categories c ON ir.category_id = c.id
+          `;
+
+          console.log("Executing requests query");
+          const requestsResult = await pool.query(requestsQuery);
+
+          console.log(`Retrieved ${requestsResult.rows.length} requests`);
+
+          // Get comments for each request
+          for (const request of requestsResult.rows) {
+            const commentsQuery = `
+              SELECT
+                id,
+                request_id as "requestId",
+                user_id as "userId",
+                content,
+                created_at as "createdAt"
+              FROM comments
+              WHERE request_id = $1
+            `;
+
+            const commentsResult = await pool.query(commentsQuery, [
+              request.id,
+            ]);
+            request.comments = commentsResult.rows;
+          }
+
+          res.json(requestsResult.rows);
+        } catch (error) {
+          console.error("Error fetching requests:", error);
+          // Return empty array to prevent frontend errors
+          res.json([]);
+        }
+        break;
+
+      case "getById":
+        try {
+          // Get request by ID
+          const requestQuery = `
+            SELECT
+              ir.id,
+              ir.title,
+              ir.description,
+              c.id as category,
+              ir.priority,
+              ir.status,
+              ir.user_id as "userId",
+              ir.created_at as "createdAt",
+              ir.updated_at as "updatedAt",
+              ir.approved_at as "approvedAt",
+              ir.approved_by as "approvedBy",
+              ir.rejected_at as "rejectedAt",
+              ir.rejected_by as "rejectedBy",
+              ir.rejection_reason as "rejectionReason",
+              ir.fulfillment_date as "fulfillmentDate",
+              ir.quantity
+            FROM item_requests ir
+            JOIN categories c ON ir.category_id = c.id
+            WHERE ir.id = $1
+          `;
+
+          console.log("Executing getById query for request:", id);
+          const requestResult = await pool.query(requestQuery, [id]);
+
+          if (requestResult.rows.length === 0) {
+            return res.status(404).json({ message: "Request not found" });
+          }
+
+          const request = requestResult.rows[0];
+
+          // Get comments for the request
+          const commentsQuery = `
+            SELECT
+              id,
+              request_id as "requestId",
+              user_id as "userId",
+              content,
+              created_at as "createdAt"
+            FROM comments
+            WHERE request_id = $1
+          `;
+
+          const commentsResult = await pool.query(commentsQuery, [id]);
+          request.comments = commentsResult.rows;
+
+          console.log("Retrieved request:", request.title);
+          res.json(request);
+        } catch (error) {
+          console.error("Error fetching request by ID:", error);
+          res
+            .status(500)
+            .json({ message: "Error fetching request", error: error.message });
+        }
+        break;
+
+      case "create":
+        try {
+          // Create a new request
+          console.log("Handling create request action");
+          const {
+            title,
+            description,
+            category_id,
+            priority,
+            status,
+            user_id,
+            quantity,
+            fulfillmentDate,
+          } = request;
+
+          // Log the request data for debugging
+          console.log("Creating request with data:", {
+            id: request.id,
+            title,
+            description,
+            category_id,
+            priority,
+            status,
+            user_id,
+            quantity,
+            fulfillment_date: fulfillmentDate,
+          });
+
+          // Inventory item functionality is disabled in this version
+          // because the inventory_item_id column doesn't exist in the database
+
+          // Insert the request
+          const insertQuery = `
+            INSERT INTO item_requests (
+              id,
+              title,
+              description,
+              category_id,
+              priority,
+              status,
+              user_id,
+              quantity,
+              fulfillment_date
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+            RETURNING id
+          `;
+
+          const insertParams = [
+            request.id,
+            title,
+            description,
+            category_id,
+            priority,
+            status,
+            user_id,
+            quantity,
+            fulfillmentDate ? new Date(fulfillmentDate) : null,
+          ];
+
+          const insertResult = await pool.query(insertQuery, insertParams);
+          console.log("Request inserted with ID:", insertResult.rows[0].id);
+
+          // Get the created request
+          try {
+            console.log("Retrieving created request with ID:", request.id);
+            const createdRequestQuery = `
+              SELECT
+                ir.id,
+                ir.title,
+                ir.description,
+                c.id as category,
+                c.name as "categoryName",
+                ir.priority,
+                ir.status,
+                ir.user_id as "userId",
+                ir.created_at as "createdAt",
+                ir.updated_at as "updatedAt",
+                ir.quantity,
+                ir.fulfillment_date as "fulfillmentDate",
+                NULL as "inventoryItemId",
+                NULL as "inventoryItemName",
+                NULL as "inventoryQuantityAvailable",
+                NULL as "inventoryQuantityReserved"
+              FROM item_requests ir
+              JOIN categories c ON ir.category_id = c.id
+              WHERE ir.id = $1
+            `;
+
+            const createdRequestResult = await pool.query(createdRequestQuery, [
+              request.id,
+            ]);
+
+            console.log(
+              "Query result length:",
+              createdRequestResult.rows.length
+            );
+
+            if (!createdRequestResult.rows.length) {
+              console.log(
+                "Created request not found in database, using fallback response"
+              );
+              // Return a fallback response with the request data
+              const fallbackResponse = {
+                id: request.id,
+                title: request.title,
+                description: request.description,
+                category: request.category,
+                priority: request.priority,
+                status: request.status,
+                userId: request.userId,
+                quantity: request.quantity,
+                createdAt: new Date().toISOString(),
+                updatedAt: new Date().toISOString(),
+                message: "Request created but could not retrieve details",
+              };
+              console.log("Sending fallback response:", fallbackResponse);
+              return res.json(fallbackResponse);
+            }
+
+            console.log(
+              "Created request retrieved successfully:",
+              createdRequestResult.rows[0]
+            );
+
+            // Return the response as JSON
+            return res.json(createdRequestResult.rows[0]);
+          } catch (selectError) {
+            console.error("Error retrieving created request:", selectError);
+            // Return a fallback response with the request data
+            const fallbackResponse = {
+              id: request.id,
+              title: request.title,
+              description: request.description,
+              category: request.category,
+              priority: request.priority,
+              status: request.status,
+              userId: request.userId,
+              quantity: request.quantity,
+              createdAt: new Date().toISOString(),
+              updatedAt: new Date().toISOString(),
+              message: "Request created but could not retrieve details",
+            };
+            console.log(
+              "Sending fallback response due to error:",
+              fallbackResponse
+            );
+
+            // Return the fallback response as JSON
+            return res.json(fallbackResponse);
+          }
+        } catch (error) {
+          console.error("Error creating request:", error);
+          res
+            .status(500)
+            .json({ message: "Error creating request", error: error.message });
+        }
+        break;
+
+      case "update":
+        // Update a request
+        console.log("Handling update request action");
+        console.log("Request data:", request);
+
+        const {
+          id: updateId,
+          title: updateTitle,
+          description: updateDescription,
+          category: updateCategory,
+          priority: updatePriority,
+          status: updateStatus,
+          quantity: updateQuantity,
+          fulfillmentDate: updateFulfillmentDate,
+          approvedAt,
+          approvedBy,
+          rejectedAt,
+          rejectedBy,
+          rejectionReason,
+          inventoryItemId: updateInventoryItemId,
+          oldStatus,
+          oldQuantity,
+        } = request;
+
+        console.log("Extracted update data:", {
+          updateId,
+          updateTitle,
+          updateDescription,
+          updateCategory,
+          updatePriority,
+          updateStatus,
+          updateQuantity,
+          updateFulfillmentDate,
+          approvedAt,
+          approvedBy,
+          rejectedAt,
+          rejectedBy,
+          rejectionReason,
+          updateInventoryItemId,
+          oldStatus,
+          oldQuantity,
+        });
+
+        // Get the current request to check for changes
+        const [currentRequest] = await connection.query(
+          `SELECT status, quantity, inventory_item_id FROM item_requests WHERE id = ?`,
+          [updateId]
+        );
+
+        if (currentRequest.length === 0) {
+          connection.release();
+          return res.status(404).json({ message: "Request not found" });
+        }
+
+        const currentStatus = currentRequest[0].status;
+        const currentQuantity = currentRequest[0].quantity;
+        const currentInventoryItemId = currentRequest[0].inventory_item_id;
+
+        // Handle inventory updates if needed
+        if (currentInventoryItemId) {
+          // If status is changing to fulfilled, update inventory
+          if (currentStatus !== "fulfilled" && updateStatus === "fulfilled") {
+            // When fulfilled, remove from reserved (it's been used)
+            await connection.query(
+              `UPDATE inventory_items
+               SET quantity_reserved = quantity_reserved - ?
+               WHERE id = ?`,
+              [currentQuantity, currentInventoryItemId]
+            );
+            console.log(
+              `Request fulfilled: Released ${currentQuantity} reserved items from inventory ${currentInventoryItemId}`
+            );
+          }
+
+          // If status is changing to rejected, update inventory
+          if (currentStatus !== "rejected" && updateStatus === "rejected") {
+            // When rejected, return items to available stock
+            await connection.query(
+              `UPDATE inventory_items
+               SET quantity_reserved = quantity_reserved - ?,
+                   quantity_available = quantity_available + ?
+               WHERE id = ?`,
+              [currentQuantity, currentQuantity, currentInventoryItemId]
+            );
+            console.log(
+              `Request rejected: Returned ${currentQuantity} items to available stock in inventory ${currentInventoryItemId}`
+            );
+          }
+
+          // If quantity is changing, update inventory
+          if (
+            updateQuantity !== currentQuantity &&
+            (currentStatus === "pending" || currentStatus === "approved")
+          ) {
+            const quantityDiff = updateQuantity - currentQuantity;
+
+            if (quantityDiff > 0) {
+              // Check if there's enough available quantity for the increase
+              const [inventoryItem] = await connection.query(
+                `SELECT quantity_available FROM inventory_items WHERE id = ?`,
+                [currentInventoryItemId]
+              );
+
+              if (inventoryItem[0].quantity_available < quantityDiff) {
+                connection.release();
+                res.status(400).json({
+                  message: "Not enough quantity available for the increase",
+                  availableQuantity: inventoryItem[0].quantity_available,
+                  requestedIncrease: quantityDiff,
+                });
+                return;
+              }
+
+              // Increase reserved and decrease available
+              await connection.query(
+                `UPDATE inventory_items
+                 SET quantity_reserved = quantity_reserved + ?,
+                     quantity_available = quantity_available - ?
+                 WHERE id = ?`,
+                [quantityDiff, quantityDiff, currentInventoryItemId]
+              );
+              console.log(
+                `Request quantity increased: Reserved additional ${quantityDiff} items from inventory ${currentInventoryItemId}`
+              );
+            } else if (quantityDiff < 0) {
+              // Decrease reserved and increase available
+              const absQuantityDiff = Math.abs(quantityDiff);
+              await connection.query(
+                `UPDATE inventory_items
+                 SET quantity_reserved = quantity_reserved - ?,
+                     quantity_available = quantity_available + ?
+                 WHERE id = ?`,
+                [absQuantityDiff, absQuantityDiff, currentInventoryItemId]
+              );
+              console.log(
+                `Request quantity decreased: Returned ${absQuantityDiff} items to available stock in inventory ${currentInventoryItemId}`
+              );
+            }
+          }
+        }
+
+        // If inventory item is changing, handle both old and new inventory items
+        if (updateInventoryItemId !== currentInventoryItemId) {
+          // If removing an inventory item, return items to available stock
+          if (
+            currentInventoryItemId &&
+            (!updateInventoryItemId || updateInventoryItemId === "")
+          ) {
+            await connection.query(
+              `UPDATE inventory_items
+               SET quantity_reserved = quantity_reserved - ?,
+                   quantity_available = quantity_available + ?
+               WHERE id = ?`,
+              [currentQuantity, currentQuantity, currentInventoryItemId]
+            );
+            console.log(
+              `Inventory item removed from request: Returned ${currentQuantity} items to available stock in inventory ${currentInventoryItemId}`
+            );
+          }
+
+          // If adding a new inventory item, reserve items from available stock
+          if (updateInventoryItemId && updateInventoryItemId !== "") {
+            // Check if there's enough available quantity
+            const [inventoryItem] = await connection.query(
+              `SELECT quantity_available FROM inventory_items WHERE id = ?`,
+              [updateInventoryItemId]
+            );
+
+            if (inventoryItem.length === 0) {
+              connection.release();
+              res.status(404).json({ message: "New inventory item not found" });
+              return;
+            }
+
+            if (inventoryItem[0].quantity_available < updateQuantity) {
+              connection.release();
+              res.status(400).json({
+                message:
+                  "Not enough quantity available in the new inventory item",
+                availableQuantity: inventoryItem[0].quantity_available,
+                requestedQuantity: updateQuantity,
+              });
+              return;
+            }
+
+            // Reserve items from the new inventory item
+            await connection.query(
+              `UPDATE inventory_items
+               SET quantity_reserved = quantity_reserved + ?,
+                   quantity_available = quantity_available - ?
+               WHERE id = ?`,
+              [updateQuantity, updateQuantity, updateInventoryItemId]
+            );
+            console.log(
+              `New inventory item added to request: Reserved ${updateQuantity} items from inventory ${updateInventoryItemId}`
+            );
+          }
+        }
+
+        // Update the request
+        console.log("Executing SQL update for request:", updateId);
+
+        const updateParams = [
+          updateTitle,
+          updateDescription,
+          updateCategory,
+          updatePriority,
+          updateStatus,
+          updateQuantity,
+          updateFulfillmentDate ? new Date(updateFulfillmentDate) : null,
+          approvedAt ? new Date(approvedAt) : null,
+          approvedBy,
+          rejectedAt ? new Date(rejectedAt) : null,
+          rejectedBy,
+          rejectionReason,
+          updateInventoryItemId || null,
+          updateId,
+        ];
+
+        console.log("Update parameters:", updateParams);
+
+        const updateResult = await connection.query(
+          `
+          UPDATE item_requests
+          SET
+            title = ?,
+            description = ?,
+            category_id = ?,
+            priority = ?,
+            status = ?,
+            quantity = ?,
+            fulfillment_date = ?,
+            approved_at = ?,
+            approved_by = ?,
+            rejected_at = ?,
+            rejected_by = ?,
+            rejection_reason = ?,
+            inventory_item_id = ?
+          WHERE id = ?
+        `,
+          updateParams
+        );
+
+        console.log("Update result:", updateResult);
+
+        // Get the updated request
+        const [updatedRequest] = await connection.query(
+          `
+          SELECT
+            ir.id,
+            ir.title,
+            ir.description,
+            c.id as category,
+            c.name as categoryName,
+            ir.priority,
+            ir.status,
+            ir.user_id as userId,
+            ir.created_at as createdAt,
+            ir.updated_at as updatedAt,
+            ir.approved_at as approvedAt,
+            ir.approved_by as approvedBy,
+            ir.rejected_at as rejectedAt,
+            ir.rejected_by as rejectedBy,
+            ir.rejection_reason as rejectionReason,
+            ir.fulfillment_date as fulfillmentDate,
+            ir.quantity,
+            ir.inventory_item_id as inventoryItemId,
+            CASE WHEN ii.id IS NOT NULL THEN ii.name ELSE NULL END as inventoryItemName,
+            CASE WHEN ii.id IS NOT NULL THEN ii.quantity_available ELSE NULL END as inventoryQuantityAvailable,
+            CASE WHEN ii.id IS NOT NULL THEN ii.quantity_reserved ELSE NULL END as inventoryQuantityReserved
+          FROM item_requests ir
+          JOIN categories c ON ir.category_id = c.id
+          LEFT JOIN inventory_items ii ON ir.inventory_item_id = ii.id
+          WHERE ir.id = ?
+        `,
+          [updateId]
+        );
+
+        // Get comments for the request
+        const [updatedComments] = await connection.query(
+          `
+          SELECT
+            id,
+            request_id as requestId,
+            user_id as userId,
+            content,
+            created_at as createdAt
+          FROM comments
+          WHERE request_id = ?
+        `,
+          [updateId]
+        );
+
+        updatedRequest[0].comments = updatedComments;
+
+        connection.release();
+        res.json(updatedRequest[0]);
+        break;
+
+      case "delete":
+        // Check if the request has an inventory item
+        const [requestToDelete] = await connection.query(
+          `SELECT inventory_item_id, quantity, status FROM item_requests WHERE id = ?`,
+          [id]
+        );
+
+        if (
+          requestToDelete.length > 0 &&
+          requestToDelete[0].inventory_item_id
+        ) {
+          const inventoryItemId = requestToDelete[0].inventory_item_id;
+          const quantity = requestToDelete[0].quantity;
+          const status = requestToDelete[0].status;
+
+          // If the request is pending or approved, return the reserved quantity to available
+          if (status === "pending" || status === "approved") {
+            await connection.query(
+              `UPDATE inventory_items
+               SET quantity_reserved = quantity_reserved - ?,
+                   quantity_available = quantity_available + ?
+               WHERE id = ?`,
+              [quantity, quantity, inventoryItemId]
+            );
+            console.log(
+              `Request deleted: Returned ${quantity} items to available stock in inventory ${inventoryItemId}`
+            );
+          }
+        }
+
+        // Delete the request and related records
+        await connection.query("DELETE FROM comments WHERE request_id = ?", [
+          id,
+        ]);
+        await connection.query(
+          "DELETE FROM notifications WHERE related_item_id = ?",
+          [id]
+        );
+        await connection.query("DELETE FROM item_requests WHERE id = ?", [id]);
+
+        connection.release();
+        res.json({ success: true });
+        break;
+
+      case "addComment":
+        // Add a comment to a request
+        const {
+          id: commentId,
+          requestId,
+          userId: commentUserId,
+          content,
+          createdAt,
+        } = comment;
+
+        // Insert the comment
+        await connection.query(
+          `
+          INSERT INTO comments (
+            id,
+            request_id,
+            user_id,
+            content,
+            created_at
+          ) VALUES (?, ?, ?, ?, ?)
+        `,
+          [commentId, requestId, commentUserId, content, new Date(createdAt)]
+        );
+
+        // Get the created comment
+        const [createdComment] = await connection.query(
+          `
+          SELECT
+            id,
+            request_id as requestId,
+            user_id as userId,
+            content,
+            created_at as createdAt
+          FROM comments
+          WHERE id = ?
+        `,
+          [commentId]
+        );
+
+        connection.release();
+        res.json(createdComment[0]);
+        break;
+
+      default:
+        connection.release();
+        res.status(400).json({ message: "Invalid action" });
+    }
+  } catch (error) {
+    console.error("Error executing database operation:", error);
+    console.error("Request body:", req.body);
+
+    // Provide more detailed error message
+    let errorMessage = "Error executing database operation";
+    if (error.code === "ER_NO_REFERENCED_ROW_2") {
+      errorMessage =
+        "Invalid reference: The category, user, or other referenced ID does not exist";
+    } else if (error.code === "ER_BAD_NULL_ERROR") {
+      errorMessage =
+        "Required field missing: A required field was not provided";
+    } else if (error.code === "ER_DUP_ENTRY") {
+      errorMessage = "Duplicate entry: An item with this ID already exists";
+    }
+
+    res.status(500).json({
+      message: errorMessage,
+      error: error.message,
+      code: error.code,
+      sqlState: error.sqlState,
+      sqlMessage: error.sqlMessage,
+    });
+  }
+});
+
+// Handle inventory requests
+app.post("/db/inventory", async (req, res) => {
+  console.log(
+    "Inventory request received from:",
+    req.headers.origin || "unknown origin"
+  );
+  console.log("Inventory request headers:", req.headers);
+
+  const { action, categoryId } = req.body;
+  console.log("Request body:", req.body);
+
+  try {
+    // For PostgreSQL, we don't need to get a connection from the pool for each query
+    // The pool will manage connections automatically
+
+    switch (action) {
+      case "getAll":
+        // Build the query based on whether a category filter is provided
+        let query = `
+          SELECT
+            i.id,
+            i.name,
+            i.description,
+            i.category_id as "categoryId",
+            c.name as "categoryName",
+            i.sku,
+            i.quantity_available as "quantityAvailable",
+            i.quantity_reserved as "quantityReserved",
+            i.unit_price as "unitPrice",
+            i.location,
+            i.image_url as "imageUrl",
+            i.created_at as "createdAt",
+            i.updated_at as "updatedAt"
+          FROM inventory_items i
+          JOIN categories c ON i.category_id = c.id
+        `;
+
+        // Add category filter if provided
+        const params = [];
+        if (categoryId) {
+          query += ` WHERE i.category_id = $1`;
+          params.push(categoryId);
+        }
+
+        // Add ordering
+        query += ` ORDER BY i.name`;
+
+        console.log("Executing query:", query);
+        console.log("Query parameters:", params);
+
+        // Execute the query
+        const result = await pool.query(query, params);
+
+        console.log(`Retrieved ${result.rows.length} inventory items`);
+
+        // Log the first few items for debugging
+        if (result.rows.length > 0) {
+          console.log(
+            "First 3 items:",
+            result.rows.slice(0, 3).map((item) => item.name)
+          );
+        }
+
+        res.json(result.rows);
+        break;
+
+      case "getById":
+        // Get a specific inventory item by ID
+        const { id } = req.body;
+        if (!id) {
+          return res.status(400).json({ message: "Item ID is required" });
+        }
+
+        const itemQuery = `
+          SELECT
+            i.id,
+            i.name,
+            i.description,
+            i.category_id as "categoryId",
+            c.name as "categoryName",
+            i.sku,
+            i.quantity_available as "quantityAvailable",
+            i.quantity_reserved as "quantityReserved",
+            i.unit_price as "unitPrice",
+            i.location,
+            i.image_url as "imageUrl",
+            i.created_at as "createdAt",
+            i.updated_at as "updatedAt"
+          FROM inventory_items i
+          JOIN categories c ON i.category_id = c.id
+          WHERE i.id = $1
+        `;
+
+        console.log("Executing getById query for item:", id);
+        const itemResult = await pool.query(itemQuery, [id]);
+
+        if (itemResult.rows.length === 0) {
+          return res.status(404).json({ message: "Item not found" });
+        }
+
+        console.log("Retrieved item:", itemResult.rows[0].name);
+        res.json(itemResult.rows[0]);
+        break;
+
+      case "create":
+        // Create a new inventory item
+        const {
+          name,
+          description,
+          categoryId: newItemCategoryId,
+          sku,
+          quantityAvailable,
+          quantityReserved,
+          location,
+          imageUrl,
+        } = req.body;
+
+        // Validate required fields
+        if (!name || !newItemCategoryId || quantityAvailable === undefined) {
+          connection.release();
+          return res.status(400).json({
+            message: "Name, category, and quantity available are required",
+          });
+        }
+
+        // Generate a new UUID for the item
+        const newItemId = uuidv4();
+
+        // Insert the new item
+        await connection.query(
+          `
+          INSERT INTO inventory_items (
+            id,
+            name,
+            description,
+            category_id,
+            sku,
+            quantity_available,
+            quantity_reserved,
+            location,
+            image_url,
+            created_at,
+            updated_at
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())
+          `,
+          [
+            newItemId,
+            name,
+            description || null,
+            newItemCategoryId,
+            sku || null,
+            quantityAvailable,
+            quantityReserved || 0,
+            location || null,
+            imageUrl || null,
+          ]
+        );
+
+        // Get the newly created item with category name
+        const [newItem] = await connection.query(
+          `
+          SELECT
+            i.id,
+            i.name,
+            i.description,
+            i.category_id as categoryId,
+            c.name as categoryName,
+            i.sku,
+            i.quantity_available as quantityAvailable,
+            i.quantity_reserved as quantityReserved,
+            i.unit_price as unitPrice,
+            i.location,
+            i.image_url as imageUrl,
+            i.created_at as createdAt,
+            i.updated_at as updatedAt
+          FROM inventory_items i
+          JOIN categories c ON i.category_id = c.id
+          WHERE i.id = ?
+          `,
+          [newItemId]
+        );
+
+        connection.release();
+        res.status(201).json(newItem[0]);
+        break;
+
+      case "update":
+        // Update an existing inventory item
+        const {
+          id: updateItemId,
+          name: updateName,
+          description: updateDescription,
+          categoryId: updateCategoryId,
+          sku: updateSku,
+          quantityAvailable: updateQuantityAvailable,
+          quantityReserved: updateQuantityReserved,
+          location: updateLocation,
+          imageUrl: updateImageUrl,
+        } = req.body;
+
+        // Validate required fields
+        if (!updateItemId) {
+          connection.release();
+          return res.status(400).json({ message: "Item ID is required" });
+        }
+
+        // Check if the item exists
+        const [existingItem] = await connection.query(
+          "SELECT * FROM inventory_items WHERE id = ?",
+          [updateItemId]
+        );
+
+        if (existingItem.length === 0) {
+          connection.release();
+          return res.status(404).json({ message: "Item not found" });
+        }
+
+        // Build the update query dynamically
+        const updateFields = [];
+        const updateValues = [];
+
+        if (updateName !== undefined) {
+          updateFields.push("name = ?");
+          updateValues.push(updateName);
+        }
+
+        if (updateDescription !== undefined) {
+          updateFields.push("description = ?");
+          updateValues.push(updateDescription);
+        }
+
+        if (updateCategoryId !== undefined) {
+          updateFields.push("category_id = ?");
+          updateValues.push(updateCategoryId);
+        }
+
+        if (updateSku !== undefined) {
+          updateFields.push("sku = ?");
+          updateValues.push(updateSku);
+        }
+
+        if (updateQuantityAvailable !== undefined) {
+          updateFields.push("quantity_available = ?");
+          updateValues.push(updateQuantityAvailable);
+        }
+
+        if (updateQuantityReserved !== undefined) {
+          updateFields.push("quantity_reserved = ?");
+          updateValues.push(updateQuantityReserved);
+        }
+
+        if (updateLocation !== undefined) {
+          updateFields.push("location = ?");
+          updateValues.push(updateLocation);
+        }
+
+        if (updateImageUrl !== undefined) {
+          updateFields.push("image_url = ?");
+          updateValues.push(updateImageUrl);
+        }
+
+        // Add updated_at timestamp
+        updateFields.push("updated_at = NOW()");
+
+        // If no fields to update, return the existing item
+        if (updateFields.length === 0) {
+          connection.release();
+          return res.status(400).json({ message: "No fields to update" });
+        }
+
+        // Execute the update query
+        await connection.query(
+          `UPDATE inventory_items SET ${updateFields.join(", ")} WHERE id = ?`,
+          [...updateValues, updateItemId]
+        );
+
+        // Get the updated item with category name
+        const [updatedItem] = await connection.query(
+          `
+          SELECT
+            i.id,
+            i.name,
+            i.description,
+            i.category_id as categoryId,
+            c.name as categoryName,
+            i.sku,
+            i.quantity_available as quantityAvailable,
+            i.quantity_reserved as quantityReserved,
+            i.unit_price as unitPrice,
+            i.location,
+            i.image_url as imageUrl,
+            i.created_at as createdAt,
+            i.updated_at as updatedAt
+          FROM inventory_items i
+          JOIN categories c ON i.category_id = c.id
+          WHERE i.id = ?
+          `,
+          [updateItemId]
+        );
+
+        connection.release();
+        res.json(updatedItem[0]);
+        break;
+
+      case "delete":
+        // Delete an inventory item
+        const { id: deleteItemId } = req.body;
+
+        if (!deleteItemId) {
+          connection.release();
+          return res.status(400).json({ message: "Item ID is required" });
+        }
+
+        // Check if the item exists
+        const [itemToDelete] = await connection.query(
+          "SELECT * FROM inventory_items WHERE id = ?",
+          [deleteItemId]
+        );
+
+        if (itemToDelete.length === 0) {
+          connection.release();
+          return res.status(404).json({ message: "Item not found" });
+        }
+
+        // Check if the item is referenced in any requests
+        const [referencedRequests] = await connection.query(
+          "SELECT COUNT(*) as count FROM item_requests WHERE inventory_item_id = ?",
+          [deleteItemId]
+        );
+
+        if (referencedRequests[0].count > 0) {
+          connection.release();
+          return res.status(400).json({
+            message: "Cannot delete item that is referenced in requests",
+          });
+        }
+
+        // Delete the item
+        await connection.query("DELETE FROM inventory_items WHERE id = ?", [
+          deleteItemId,
+        ]);
+
+        connection.release();
+        res.json({ message: "Item deleted successfully" });
+        break;
+
+      default:
+        connection.release();
+        res.status(400).json({ message: "Invalid action" });
+    }
+  } catch (error) {
+    console.error("Error executing database operation:", error);
+    res.status(500).json({ message: "Database error", error: error.message });
+  }
+});
+
+// Handle users requests
+app.post("/db/users", async (req, res) => {
+  const { action } = req.body;
+  console.log("Users request body:", req.body);
+
+  try {
+    // For PostgreSQL, we don't need to get a connection from the pool for each query
+    // The pool will manage connections automatically
+
+    switch (action) {
+      case "getAll":
+        try {
+          // Get all users
+          console.log("Getting all users");
+          const usersQuery = `
+            SELECT
+              id,
+              name,
+              email,
+              role,
+              department,
+              avatar_url as "avatarUrl",
+              created_at as "createdAt"
+            FROM users
+            ORDER BY name
+          `;
+
+          const usersResult = await pool.query(usersQuery);
+          console.log(`Found ${usersResult.rows.length} users`);
+
+          if (usersResult.rows.length > 0) {
+            console.log("First user:", usersResult.rows[0].name);
+          }
+
+          res.json(usersResult.rows);
+        } catch (error) {
+          console.error("Error fetching users:", error);
+          res
+            .status(500)
+            .json({ message: "Error fetching users", error: error.message });
+        }
+        break;
+
+      case "getById":
+        try {
+          // Get a specific user by ID
+          const { id } = req.body;
+          if (!id) {
+            return res.status(400).json({ message: "User ID is required" });
+          }
+
+          const userQuery = `
+            SELECT
+              id,
+              name,
+              email,
+              role,
+              department,
+              avatar_url as "avatarUrl",
+              created_at as "createdAt"
+            FROM users
+            WHERE id = $1
+          `;
+
+          const userResult = await pool.query(userQuery, [id]);
+
+          if (userResult.rows.length === 0) {
+            return res.status(404).json({ message: "User not found" });
+          }
+
+          console.log(`Retrieved user: ${userResult.rows[0].name}`);
+          res.json(userResult.rows[0]);
+        } catch (error) {
+          console.error("Error fetching user by ID:", error);
+          res
+            .status(500)
+            .json({ message: "Error fetching user", error: error.message });
+        }
+        break;
+
+      case "create":
+        try {
+          // Create a new user
+          const { name, email, password, role, department, avatarUrl } =
+            req.body;
+
+          // Validate required fields
+          if (!name || !email || !role) {
+            return res
+              .status(400)
+              .json({ message: "Name, email, and role are required" });
+          }
+
+          // Check if email already exists
+          const emailCheckQuery = "SELECT id FROM users WHERE email = $1";
+          const emailCheckResult = await pool.query(emailCheckQuery, [email]);
+
+          if (emailCheckResult.rows.length > 0) {
+            return res.status(400).json({ message: "Email already exists" });
+          }
+
+          // Generate a new UUID for the user
+          const newUserId = uuidv4();
+
+          // Hash the password or use a default if not provided
+          const defaultPassword = "password";
+          const salt = await bcrypt.genSalt(10);
+          const hashedPassword = await bcrypt.hash(
+            password || defaultPassword,
+            salt
+          );
+
+          // Insert the new user
+          const insertQuery = `
+            INSERT INTO users (
+              id,
+              name,
+              email,
+              password,
+              role,
+              department,
+              avatar_url,
+              created_at
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())
+            RETURNING id, name, email, role, department, avatar_url as "avatarUrl", created_at as "createdAt"
+          `;
+
+          const insertResult = await pool.query(insertQuery, [
+            newUserId,
+            name,
+            email,
+            hashedPassword,
+            role,
+            department || null,
+            avatarUrl || null,
+          ]);
+
+          console.log(`Created new user: ${name} with ID ${newUserId}`);
+          res.status(201).json(insertResult.rows[0]);
+        } catch (error) {
+          console.error("Error creating user:", error);
+          res
+            .status(500)
+            .json({ message: "Error creating user", error: error.message });
+        }
+        break;
+
+      case "update":
+        try {
+          // Update an existing user
+          const {
+            id: updateUserId,
+            name: updateName,
+            email: updateEmail,
+            // password: updatePassword, // Not used currently
+            role: updateRole,
+            department: updateDepartment,
+            avatarUrl: updateAvatarUrl,
+          } = req.body;
+
+          console.log("Update user request:", {
+            updateUserId,
+            updateName,
+            updateEmail,
+            updateRole,
+            updateDepartment,
+            updateAvatarUrl,
+          });
+
+          // Validate required fields
+          if (!updateUserId) {
+            return res.status(400).json({ message: "User ID is required" });
+          }
+
+          // Check if the user exists
+          const userCheckQuery = "SELECT * FROM users WHERE id = $1";
+          const userCheckResult = await pool.query(userCheckQuery, [
+            updateUserId,
+          ]);
+
+          if (userCheckResult.rows.length === 0) {
+            return res.status(404).json({ message: "User not found" });
+          }
+
+          const existingUser = userCheckResult.rows[0];
+
+          // If email is changing, check if the new email already exists
+          if (updateEmail && updateEmail !== existingUser.email) {
+            const emailCheckQuery =
+              "SELECT id FROM users WHERE email = $1 AND id != $2";
+            const emailCheckResult = await pool.query(emailCheckQuery, [
+              updateEmail,
+              updateUserId,
+            ]);
+
+            if (emailCheckResult.rows.length > 0) {
+              return res.status(400).json({ message: "Email already exists" });
+            }
+          }
+
+          // Build the update query dynamically
+          let updateQuery = "UPDATE users SET ";
+          const updateValues = [];
+          const updateParts = [];
+          let paramIndex = 1;
+
+          if (updateName !== undefined) {
+            updateParts.push(`name = $${paramIndex}`);
+            updateValues.push(updateName);
+            paramIndex++;
+          }
+
+          if (updateEmail !== undefined) {
+            updateParts.push(`email = $${paramIndex}`);
+            updateValues.push(updateEmail);
+            paramIndex++;
+          }
+
+          if (updateRole !== undefined) {
+            updateParts.push(`role = $${paramIndex}`);
+            updateValues.push(updateRole);
+            paramIndex++;
+          }
+
+          if (updateDepartment !== undefined) {
+            updateParts.push(`department = $${paramIndex}`);
+            updateValues.push(updateDepartment);
+            paramIndex++;
+          }
+
+          if (updateAvatarUrl !== undefined) {
+            updateParts.push(`avatar_url = $${paramIndex}`);
+            updateValues.push(updateAvatarUrl);
+            paramIndex++;
+          }
+
+          // If no fields to update, return the existing user
+          if (updateParts.length === 0) {
+            return res.status(400).json({ message: "No fields to update" });
+          }
+
+          // Complete the update query
+          updateQuery += updateParts.join(", ");
+          updateQuery += ` WHERE id = $${paramIndex} RETURNING id, name, email, role, department, avatar_url as "avatarUrl", created_at as "createdAt"`;
+          updateValues.push(updateUserId);
+
+          console.log("Update query:", updateQuery);
+          console.log("Update values:", updateValues);
+
+          // Execute the update query
+          const updateResult = await pool.query(updateQuery, updateValues);
+
+          console.log("Updated user from database:", updateResult.rows[0]);
+          res.json(updateResult.rows[0]);
+        } catch (error) {
+          console.error("Error updating user:", error);
+          res
+            .status(500)
+            .json({ message: "Error updating user", error: error.message });
+        }
+        break;
+
+      case "delete":
+        try {
+          // Delete a user
+          const { id: deleteUserId } = req.body;
+
+          if (!deleteUserId) {
+            return res.status(400).json({ message: "User ID is required" });
+          }
+
+          // Check if the user exists
+          const userCheckQuery = "SELECT * FROM users WHERE id = $1";
+          const userCheckResult = await pool.query(userCheckQuery, [
+            deleteUserId,
+          ]);
+
+          if (userCheckResult.rows.length === 0) {
+            return res.status(404).json({ message: "User not found" });
+          }
+
+          // Check if the user is referenced in any requests
+          const requestsCheckQuery =
+            "SELECT COUNT(*) as count FROM item_requests WHERE user_id = $1";
+          const requestsCheckResult = await pool.query(requestsCheckQuery, [
+            deleteUserId,
+          ]);
+
+          if (parseInt(requestsCheckResult.rows[0].count, 10) > 0) {
+            return res.status(400).json({
+              message: "Cannot delete user that has created requests",
+              requestCount: parseInt(requestsCheckResult.rows[0].count, 10),
+            });
+          }
+
+          // Delete the user
+          const deleteQuery = "DELETE FROM users WHERE id = $1";
+          await pool.query(deleteQuery, [deleteUserId]);
+
+          console.log(`Deleted user with ID: ${deleteUserId}`);
+          res.json({ message: "User deleted successfully", id: deleteUserId });
+        } catch (error) {
+          console.error("Error deleting user:", error);
+          res
+            .status(500)
+            .json({ message: "Error deleting user", error: error.message });
+        }
+        break;
+
+      default:
+        res.status(400).json({ message: "Invalid action" });
+    }
+  } catch (error) {
+    console.error("Error executing database operation:", error);
+    res.status(500).json({ message: "Database error", error: error.message });
+  }
+});
+
+// Handle categories requests
+app.post("/db/categories", async (req, res) => {
+  const { action } = req.body;
+  console.log("Categories request body:", req.body);
+
+  try {
+    // For PostgreSQL, we don't need to get a connection from the pool for each query
+    // The pool will manage connections automatically
+
+    switch (action) {
+      case "getAll":
+        try {
+          // Get all categories
+          console.log("Getting all categories");
+          const categoriesQuery = `
+            SELECT
+              id,
+              name,
+              description
+            FROM categories
+            ORDER BY name
+          `;
+
+          const categoriesResult = await pool.query(categoriesQuery);
+          console.log(`Found ${categoriesResult.rows.length} categories`);
+
+          // Get item counts for each category
+          for (const category of categoriesResult.rows) {
+            const countQuery = `
+              SELECT COUNT(*) as count
+              FROM inventory_items
+              WHERE category_id = $1
+            `;
+
+            const countResult = await pool.query(countQuery, [category.id]);
+            category.itemCount = parseInt(countResult.rows[0].count, 10);
+
+            console.log(
+              `- ${category.name} (${category.id}): ${category.itemCount} items`
+            );
+          }
+
+          res.json(categoriesResult.rows);
+        } catch (error) {
+          console.error("Error fetching categories:", error);
+          res.status(500).json({
+            message: "Error fetching categories",
+            error: error.message,
+          });
+        }
+        break;
+
+      case "getById":
+        try {
+          // Get a specific category by ID
+          const { id } = req.body;
+          if (!id) {
+            return res.status(400).json({ message: "Category ID is required" });
+          }
+
+          const categoryQuery = `
+            SELECT
+              id,
+              name,
+              description
+            FROM categories
+            WHERE id = $1
+          `;
+
+          const categoryResult = await pool.query(categoryQuery, [id]);
+
+          if (categoryResult.rows.length === 0) {
+            return res.status(404).json({ message: "Category not found" });
+          }
+
+          const category = categoryResult.rows[0];
+
+          // Get item count for the category
+          const countQuery = `
+            SELECT COUNT(*) as count
+            FROM inventory_items
+            WHERE category_id = $1
+          `;
+
+          const countResult = await pool.query(countQuery, [id]);
+          category.itemCount = parseInt(countResult.rows[0].count, 10);
+
+          console.log(
+            `Retrieved category: ${category.name} with ${category.itemCount} items`
+          );
+          res.json(category);
+        } catch (error) {
+          console.error("Error fetching category by ID:", error);
+          res
+            .status(500)
+            .json({ message: "Error fetching category", error: error.message });
+        }
+        break;
+
+      case "create":
+        try {
+          // Create a new category
+          const { name, description } = req.body;
+
+          // Validate required fields
+          if (!name) {
+            return res
+              .status(400)
+              .json({ message: "Category name is required" });
+          }
+
+          // Generate a new UUID for the category
+          const newCategoryId = uuidv4();
+
+          // Insert the new category
+          const insertQuery = `
+            INSERT INTO categories (
+              id,
+              name,
+              description
+            ) VALUES ($1, $2, $3)
+            RETURNING id, name, description
+          `;
+
+          const insertResult = await pool.query(insertQuery, [
+            newCategoryId,
+            name,
+            description || null,
+          ]);
+
+          console.log(`Created new category: ${name} with ID ${newCategoryId}`);
+          res.status(201).json(insertResult.rows[0]);
+        } catch (error) {
+          console.error("Error creating category:", error);
+          res
+            .status(500)
+            .json({ message: "Error creating category", error: error.message });
+        }
+        break;
+
+      case "update":
+        try {
+          // Update an existing category
+          const {
+            id: updateCategoryId,
+            name: updateName,
+            description: updateDescription,
+          } = req.body;
+
+          // Validate required fields
+          if (!updateCategoryId) {
+            return res.status(400).json({ message: "Category ID is required" });
+          }
+
+          // Check if the category exists
+          const checkQuery = "SELECT * FROM categories WHERE id = $1";
+          const existingCategory = await pool.query(checkQuery, [
+            updateCategoryId,
+          ]);
+
+          if (existingCategory.rows.length === 0) {
+            return res.status(404).json({ message: "Category not found" });
+          }
+
+          // Build the update query dynamically
+          let updateQuery = "UPDATE categories SET ";
+          const updateValues = [];
+          const updateParts = [];
+          let paramIndex = 1;
+
+          if (updateName !== undefined) {
+            updateParts.push(`name = $${paramIndex}`);
+            updateValues.push(updateName);
+            paramIndex++;
+          }
+
+          if (updateDescription !== undefined) {
+            updateParts.push(`description = $${paramIndex}`);
+            updateValues.push(updateDescription);
+            paramIndex++;
+          }
+
+          // If no fields to update, return the existing category
+          if (updateParts.length === 0) {
+            return res.status(400).json({ message: "No fields to update" });
+          }
+
+          // Complete the update query
+          updateQuery += updateParts.join(", ");
+          updateQuery += ` WHERE id = $${paramIndex} RETURNING id, name, description`;
+          updateValues.push(updateCategoryId);
+
+          // Execute the update query
+          const updateResult = await pool.query(updateQuery, updateValues);
+
+          console.log(`Updated category: ${updateResult.rows[0].name}`);
+          res.json(updateResult.rows[0]);
+        } catch (error) {
+          console.error("Error updating category:", error);
+          res
+            .status(500)
+            .json({ message: "Error updating category", error: error.message });
+        }
+        break;
+
+      case "delete":
+        try {
+          // Delete a category
+          const { id: deleteCategoryId } = req.body;
+
+          if (!deleteCategoryId) {
+            return res.status(400).json({ message: "Category ID is required" });
+          }
+
+          // Check if the category exists
+          const checkQuery = "SELECT * FROM categories WHERE id = $1";
+          const categoryResult = await pool.query(checkQuery, [
+            deleteCategoryId,
+          ]);
+
+          if (categoryResult.rows.length === 0) {
+            return res.status(404).json({ message: "Category not found" });
+          }
+
+          // Check if the category is referenced in any inventory items
+          const itemsQuery =
+            "SELECT COUNT(*) as count FROM inventory_items WHERE category_id = $1";
+          const itemsResult = await pool.query(itemsQuery, [deleteCategoryId]);
+
+          if (parseInt(itemsResult.rows[0].count, 10) > 0) {
+            return res.status(400).json({
+              message:
+                "Cannot delete category that is referenced in inventory items",
+              itemCount: parseInt(itemsResult.rows[0].count, 10),
+            });
+          }
+
+          // Check if the category is referenced in any requests
+          const requestsQuery =
+            "SELECT COUNT(*) as count FROM item_requests WHERE category_id = $1";
+          const requestsResult = await pool.query(requestsQuery, [
+            deleteCategoryId,
+          ]);
+
+          if (parseInt(requestsResult.rows[0].count, 10) > 0) {
+            return res.status(400).json({
+              message: "Cannot delete category that is referenced in requests",
+              requestCount: parseInt(requestsResult.rows[0].count, 10),
+            });
+          }
+
+          // Delete the category
+          const deleteQuery = "DELETE FROM categories WHERE id = $1";
+          await pool.query(deleteQuery, [deleteCategoryId]);
+
+          console.log(`Deleted category with ID: ${deleteCategoryId}`);
+          res.json({
+            message: "Category deleted successfully",
+            id: deleteCategoryId,
+          });
+        } catch (error) {
+          console.error("Error deleting category:", error);
+          res
+            .status(500)
+            .json({ message: "Error deleting category", error: error.message });
+        }
+        break;
+
+      default:
+        res.status(400).json({ message: "Invalid action" });
+    }
+  } catch (error) {
+    console.error("Error executing database operation:", error);
+    res.status(500).json({ message: "Database error", error: error.message });
+  }
+});
+
+// Authentication endpoints for Neon PostgreSQL
+app.post("/api/auth/verify", async (req, res) => {
+  const { userId } = req.body;
+  console.log("Verifying user session:", userId);
+
+  try {
+    // Query for user with PostgreSQL
+    const result = await pgPool.query("SELECT 1 FROM users WHERE id = $1", [
+      userId,
+    ]);
+
+    if (result.rows.length > 0) {
+      console.log("User session verified for:", userId);
+      res.json({ valid: true });
+    } else {
+      console.log("Invalid session for user:", userId);
+      res.status(401).json({ valid: false, error: "Invalid session" });
+    }
+  } catch (error) {
+    console.error("Session verification error:", error);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+app.post("/api/auth/login", async (req, res) => {
+  const { email, password } = req.body;
+  console.log("Login attempt:", { email, password: "********" });
+
+  try {
+    // Query for user with PostgreSQL
+    const result = await pgPool.query(
+      "SELECT * FROM users WHERE email = $1 AND password = crypt($2, password)",
+      [email, password]
+    );
+
+    if (result.rows.length > 0) {
+      const user = result.rows[0];
+      console.log("User authenticated:", user.email);
+      res.json(user);
+    } else {
+      console.log("Authentication failed for:", email);
+      res.status(401).json({ error: "Invalid credentials" });
+    }
+  } catch (error) {
+    console.error("Login error:", error);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+app.post("/api/auth/register", async (req, res) => {
+  const { name, email, password, role, department } = req.body;
+  console.log("Registration attempt:", { name, email, role, department });
+
+  try {
+    // Check if email already exists
+    const checkResult = await pgPool.query(
+      "SELECT 1 FROM users WHERE email = $1",
+      [email]
+    );
+
+    if (checkResult.rows.length > 0) {
+      return res.status(400).json({ error: "Email already in use" });
+    }
+
+    // Create new user with PostgreSQL
+    const result = await pgPool.query(
+      `INSERT INTO users (name, email, password, role, department)
+       VALUES ($1, $2, crypt($3, gen_salt('bf')), $4, $5)
+       RETURNING *`,
+      [name, email, password, role, department]
+    );
+
+    if (result.rows.length > 0) {
+      const user = result.rows[0];
+      console.log("User registered:", user.email);
+      res.json(user);
+    } else {
+      throw new Error("Failed to create user");
+    }
+  } catch (error) {
+    console.error("Registration error:", error);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+app.post("/api/auth/verify", async (req, res) => {
+  const { userId } = req.body;
+  console.log("Verifying user session:", userId);
+
+  try {
+    // Check if user exists
+    const result = await pgPool.query("SELECT 1 FROM users WHERE id = $1", [
+      userId,
+    ]);
+
+    if (result.rows.length > 0) {
+      res.json({ valid: true });
+    } else {
+      res.status(401).json({ valid: false, error: "Invalid session" });
+    }
+  } catch (error) {
+    console.error("Session verification error:", error);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+// Start the server
+app.listen(PORT, () => {
+  console.log(`Server running on port ${PORT}`);
+});
+
+export default app;

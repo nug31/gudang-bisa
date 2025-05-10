@@ -1,0 +1,15 @@
+# Netlify redirects file
+# This file ensures that client-side routing works correctly with Netlify
+
+# API endpoints
+/db/auth            /.netlify/functions/neon-auth           200
+/db/users           /.netlify/functions/neon-users          200
+/db/inventory       /.netlify/functions/neon-inventory      200
+/db/categories      /.netlify/functions/neon-categories     200
+/db/requests        /.netlify/functions/neon-requests       200
+
+# Legacy API endpoints
+/api/*              /.netlify/functions/:splat              200
+
+# SPA fallback
+/*                  /index.html                             200

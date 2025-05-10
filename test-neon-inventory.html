@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Test Neon Inventory API</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            line-height: 1.6;
+        }
+        button {
+            padding: 10px 15px;
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            margin-right: 10px;
+            margin-bottom: 10px;
+        }
+        button:hover {
+            background-color: #45a049;
+        }
+        pre {
+            background-color: #f5f5f5;
+            padding: 15px;
+            border-radius: 4px;
+            overflow-x: auto;
+        }
+        .loading {
+            display: inline-block;
+            margin-left: 10px;
+        }
+    </style>
+</head>
+<body>
+    <h1>Test Neon Inventory API</h1>
+    
+    <div>
+        <button id="testConnection">Test Connection</button>
+        <button id="initDb">Initialize Database</button>
+        <button id="getInventory">Get All Inventory</button>
+        <button id="getOfficeItems">Get Office Items</button>
+        <span id="loading" class="loading"></span>
+    </div>
+    
+    <h2>Response:</h2>
+    <pre id="response">Click a button to test the API...</pre>
+
+    <script>
+        // API endpoints
+        const API_BASE_URL = 'https://gudangbisa.netlify.app/.netlify/functions';
+        const TEST_ENDPOINT = `${API_BASE_URL}/test-neon`;
+        const INIT_DB_ENDPOINT = `${API_BASE_URL}/init-neon-db`;
+        const INVENTORY_ENDPOINT = `${API_BASE_URL}/neon-inventory`;
+        
+        // DOM elements
+        const responseElement = document.getElementById('response');
+        const loadingElement = document.getElementById('loading');
+        
+        // Helper function to display JSON response
+        function displayResponse(data) {
+            responseElement.textContent = JSON.stringify(data, null, 2);
+        }
+        
+        // Helper function to show/hide loading indicator
+        function setLoading(isLoading) {
+            loadingElement.textContent = isLoading ? 'Loading...' : '';
+        }
+        
+        // Test connection
+        document.getElementById('testConnection').addEventListener('click', async () => {
+            try {
+                setLoading(true);
+                const response = await fetch(TEST_ENDPOINT);
+                const data = await response.json();
+                displayResponse(data);
+            } catch (error) {
+                displayResponse({ error: error.message });
+            } finally {
+                setLoading(false);
+            }
+        });
+        
+        // Initialize database
+        document.getElementById('initDb').addEventListener('click', async () => {
+            try {
+                setLoading(true);
+                const response = await fetch(INIT_DB_ENDPOINT);
+                const data = await response.json();
+                displayResponse(data);
+            } catch (error) {
+                displayResponse({ error: error.message });
+            } finally {
+                setLoading(false);
+            }
+        });
+        
+        // Get all inventory
+        document.getElementById('getInventory').addEventListener('click', async () => {
+            try {
+                setLoading(true);
+                const response = await fetch(INVENTORY_ENDPOINT, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        action: 'getAll'
+                    })
+                });
+                const data = await response.json();
+                displayResponse(data);
+            } catch (error) {
+                displayResponse({ error: error.message });
+            } finally {
+                setLoading(false);
+            }
+        });
+        
+        // Get office items
+        document.getElementById('getOfficeItems').addEventListener('click', async () => {
+            try {
+                setLoading(true);
+                // First get all categories to find the Office category ID
+                const categoriesResponse = await fetch(`${API_BASE_URL}/neon-categories`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        action: 'getAll'
+                    })
+                });
+                const categoriesData = await categoriesResponse.json();
+                
+                // Find the Office category
+                let officeCategoryId = null;
+                if (categoriesData.categories && categoriesData.categories.length > 0) {
+                    const officeCategory = categoriesData.categories.find(cat => 
+                        cat.name.toLowerCase() === 'office');
+                    if (officeCategory) {
+                        officeCategoryId = officeCategory.id;
+                    }
+                }
+                
+                // If we couldn't find the Office category, use a default ID
+                if (!officeCategoryId) {
+                    displayResponse({ error: "Couldn't find Office category, using default categoryId" });
+                    officeCategoryId = "1";
+                }
+                
+                // Now get items for this category
+                const response = await fetch(INVENTORY_ENDPOINT, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        action: 'getAll',
+                        categoryId: officeCategoryId
+                    })
+                });
+                const data = await response.json();
+                displayResponse(data);
+            } catch (error) {
+                displayResponse({ error: error.message });
+            } finally {
+                setLoading(false);
+            }
+        });
+    </script>
+</body>
+</html>

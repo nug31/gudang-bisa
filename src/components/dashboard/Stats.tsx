@@ -26,9 +26,11 @@ export const Stats: React.FC<StatsProps> = ({
 
   // Calculate low stock items with a threshold of 5
   const lowStockThreshold = 5;
-  const lowStockItems = inventoryItems.filter(
-    (item) => (item.quantityAvailable || 0) < lowStockThreshold
-  ).length;
+  const lowStockItems = Array.isArray(inventoryItems)
+    ? inventoryItems.filter(
+        (item) => (item.quantityAvailable || 0) < lowStockThreshold
+      ).length
+    : 0;
 
   const stats = [
     {
@@ -63,30 +65,31 @@ export const Stats: React.FC<StatsProps> = ({
 
   return (
     <div className="grid grid-cols-2 md:grid-cols-4 gap-3 sm:gap-4">
-      {stats.map((stat, index) => (
-        <Card
-          key={index}
-          className="hover:shadow-3d-md transition-all hover:translate-y-[-4px] group"
-        >
-          <CardContent className="p-3 sm:p-4">
-            <div className="flex flex-col sm:flex-row items-center sm:items-start">
-              <div
-                className={`p-2 sm:p-3 mb-2 sm:mb-0 sm:mr-4 rounded-md ${stat.bg} shadow-3d-sm group-hover:shadow-3d-md transition-all`}
-              >
-                <span className={stat.color}>{stat.icon}</span>
+      {Array.isArray(stats) &&
+        stats.map((stat, index) => (
+          <Card
+            key={index}
+            className="hover:shadow-3d-md transition-all hover:translate-y-[-4px] group"
+          >
+            <CardContent className="p-3 sm:p-4">
+              <div className="flex flex-col sm:flex-row items-center sm:items-start">
+                <div
+                  className={`p-2 sm:p-3 mb-2 sm:mb-0 sm:mr-4 rounded-md ${stat.bg} shadow-3d-sm group-hover:shadow-3d-md transition-all`}
+                >
+                  <span className={stat.color}>{stat.icon}</span>
+                </div>
+                <div className="text-center sm:text-left">
+                  <p className="text-xs sm:text-sm font-medium text-neutral-500">
+                    {stat.title}
+                  </p>
+                  <p className="text-xl sm:text-2xl md:text-3xl font-semibold mt-1 group-hover:text-primary-500 transition-colors">
+                    {stat.value}
+                  </p>
+                </div>
               </div>
-              <div className="text-center sm:text-left">
-                <p className="text-xs sm:text-sm font-medium text-neutral-500">
-                  {stat.title}
-                </p>
-                <p className="text-xl sm:text-2xl md:text-3xl font-semibold mt-1 group-hover:text-primary-500 transition-colors">
-                  {stat.value}
-                </p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-      ))}
+            </CardContent>
+          </Card>
+        ))}
     </div>
   );
 };

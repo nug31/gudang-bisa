@@ -1,7 +1,7 @@
 {
   "name": "gudang-mitra-netlify-functions",
   "version": "1.0.0",
-  "description": "Serverless functions for Gudang Mitra",
+  "description": "Serverless functions for Gudang Mitra with Neon PostgreSQL",
   "main": "index.js",
   "dependencies": {
     "@supabase/supabase-js": "^2.39.7",

@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>API Test Page</title>
+  <style>
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif;
+      max-width: 800px;
+      margin: 0 auto;
+      padding: 20px;
+    }
+    h1 {
+      color: #333;
+    }
+    .endpoint {
+      margin-bottom: 20px;
+      padding: 15px;
+      border: 1px solid #ddd;
+      border-radius: 5px;
+    }
+    .endpoint h3 {
+      margin-top: 0;
+    }
+    button {
+      background-color: #4CAF50;
+      color: white;
+      border: none;
+      padding: 10px 15px;
+      text-align: center;
+      text-decoration: none;
+      display: inline-block;
+      font-size: 14px;
+      margin: 4px 2px;
+      cursor: pointer;
+      border-radius: 4px;
+    }
+    pre {
+      background-color: #f5f5f5;
+      padding: 10px;
+      border-radius: 5px;
+      overflow-x: auto;
+    }
+    .success {
+      color: green;
+    }
+    .error {
+      color: red;
+    }
+  </style>
+</head>
+<body>
+  <h1>Netlify API Test Page</h1>
+  <p>Use this page to test if your Netlify functions are working correctly.</p>
+  
+  <div class="endpoint">
+    <h3>Test Neon Database Connection</h3>
+    <button onclick="testEndpoint('/.netlify/functions/test-neon')">Test Connection</button>
+    <pre id="test-neon-result">Results will appear here...</pre>
+  </div>
+  
+  <div class="endpoint">
+    <h3>Get All Inventory Items</h3>
+    <button onclick="testEndpoint('/.netlify/functions/neon-inventory', { action: 'getAll' })">Get Items</button>
+    <pre id="inventory-result">Results will appear here...</pre>
+  </div>
+  
+  <div class="endpoint">
+    <h3>Get All Categories</h3>
+    <button onclick="testEndpoint('/.netlify/functions/neon-categories', { action: 'getAll' })">Get Categories</button>
+    <pre id="categories-result">Results will appear here...</pre>
+  </div>
+  
+  <div class="endpoint">
+    <h3>Test Authentication</h3>
+    <button onclick="testEndpoint('/.netlify/functions/neon-auth', { action: 'test' })">Test Auth</button>
+    <pre id="auth-result">Results will appear here...</pre>
+  </div>
+  
+  <div class="endpoint">
+    <h3>Test DB Endpoint</h3>
+    <button onclick="testEndpoint('/db/inventory', { action: 'getAll' })">Test DB Endpoint</button>
+    <pre id="db-result">Results will appear here...</pre>
+  </div>
+  
+  <div class="endpoint">
+    <h3>Test API Endpoint</h3>
+    <button onclick="testEndpoint('/api/inventory', { action: 'getAll' })">Test API Endpoint</button>
+    <pre id="api-result">Results will appear here...</pre>
+  </div>
+  
+  <script>
+    async function testEndpoint(endpoint, data = {}) {
+      const resultId = endpoint.replace(/[^\w-]/g, '-').replace(/-+/g, '-') + '-result';
+      const resultElement = document.getElementById(resultId);
+      
+      if (!resultElement) {
+        console.error(`Result element not found for ${endpoint}`);
+        return;
+      }
+      
+      resultElement.innerHTML = 'Testing...';
+      resultElement.className = '';
+      
+      try {
+        const response = await fetch(endpoint, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify(data)
+        });
+        
+        const statusText = `Status: ${response.status} ${response.statusText}`;
+        
+        try {
+          const responseData = await response.json();
+          resultElement.innerHTML = `${statusText}\n\n${JSON.stringify(responseData, null, 2)}`;
+          resultElement.className = response.ok ? 'success' : 'error';
+        } catch (parseError) {
+          const text = await response.text();
+          resultElement.innerHTML = `${statusText}\n\nCould not parse JSON response:\n${text}`;
+          resultElement.className = 'error';
+        }
+      } catch (error) {
+        resultElement.innerHTML = `Error: ${error.message}`;
+        resultElement.className = 'error';
+      }
+    }
+  </script>
+</body>
+</html>

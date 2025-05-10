@@ -25,10 +25,20 @@ export const ActivityCalendar: React.FC<ActivityCalendarProps> = ({
   const weekDays = Array.from({ length: 7 }, (_, i) => addDays(startDate, i));
 
   // Format date range for display
-  const dateRangeText = `${format(weekDays[0], "MMM d")} - ${format(
-    weekDays[6],
-    "MMM d"
-  )}`;
+  const dateRangeText = (() => {
+    try {
+      if (!Array.isArray(weekDays) || weekDays.length < 7) {
+        return "Current Week";
+      }
+      return `${format(weekDays[0], "MMM d")} - ${format(
+        weekDays[6],
+        "MMM d"
+      )}`;
+    } catch (e) {
+      console.error("Error formatting date range:", e);
+      return "Current Week";
+    }
+  })();
 
   // Navigate to previous/next week
   const goToPreviousWeek = () => {
@@ -44,15 +54,34 @@ export const ActivityCalendar: React.FC<ActivityCalendarProps> = ({
     const dateStr = format(date, "yyyy-MM-dd");
 
     // Filter requests for the given date
-    return requests.filter((req) => {
-      try {
-        const reqDate = parseISO(req.createdAt);
-        return format(reqDate, "yyyy-MM-dd") === dateStr;
-      } catch (e) {
-        // Handle invalid date strings
-        return false;
-      }
-    });
+    return Array.isArray(requests)
+      ? requests.filter((req) => {
+          try {
+            // Check if createdAt exists and is a valid string
+            if (!req.createdAt || typeof req.createdAt !== "string") {
+              return false;
+            }
+
+            // Try to parse the date, but handle invalid formats
+            let reqDate;
+            try {
+              reqDate = parseISO(req.createdAt);
+              // Check if the date is valid
+              if (isNaN(reqDate.getTime())) {
+                return false;
+              }
+            } catch (parseError) {
+              console.warn("Invalid date format:", req.createdAt);
+              return false;
+            }
+
+            return format(reqDate, "yyyy-MM-dd") === dateStr;
+          } catch (e) {
+            console.error("Error processing request date:", e);
+            return false;
+          }
+        })
+      : [];
   };
 
   // Handle date click
@@ -89,10 +118,18 @@ export const ActivityCalendar: React.FC<ActivityCalendarProps> = ({
           }}
         >
           <div className="text-sm font-medium mb-2">
-            {format(showTooltip.date, "MMMM d, yyyy")}
+            {(() => {
+              try {
+                return format(showTooltip.date, "MMMM d, yyyy");
+              } catch (e) {
+                console.error("Error formatting tooltip date:", e);
+                return "Selected Date";
+              }
+            })()}
           </div>
           <div className="text-xs text-neutral-600">
-            {getRequestsByDay(showTooltip.date).length > 0 ? (
+            {Array.isArray(getRequestsByDay(showTooltip.date)) &&
+            getRequestsByDay(showTooltip.date).length > 0 ? (
               getRequestsByDay(showTooltip.date).map((req, i) => (
                 <div key={i} className="flex items-start mb-2">
                   <span
@@ -158,98 +195,123 @@ export const ActivityCalendar: React.FC<ActivityCalendarProps> = ({
         <Card3DContent>
           <div className="grid grid-cols-7 gap-1 text-center">
             {/* Day headers */}
-            {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((day, i) => (
-              <div
-                key={`header-${i}`}
-                className="py-2 text-sm font-medium text-neutral-600"
-              >
-                {day}
-              </div>
-            ))}
+            {Array.isArray(["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]) &&
+              ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map(
+                (day, i) => (
+                  <div
+                    key={`header-${i}`}
+                    className="py-2 text-sm font-medium text-neutral-600"
+                  >
+                    {day}
+                  </div>
+                )
+              )}
 
             {/* Calendar cells with day numbers and status indicators */}
-            {weekDays.map((date, i) => {
-              const dayRequests = getRequestsByDay(date);
-              const hasPending = dayRequests.some(
-                (req) => req.status === "pending"
-              );
-              const hasApproved = dayRequests.some(
-                (req) => req.status === "approved"
-              );
-              const hasDenied = dayRequests.some(
-                (req) => req.status === "rejected"
-              );
-              const hasFulfilled = dayRequests.some(
-                (req) => req.status === "fulfilled"
-              );
-              const hasOutOfStock = dayRequests.some(
-                (req) => req.status === "out_of_stock"
-              );
-              const hasRequests = dayRequests.length > 0;
+            {Array.isArray(weekDays) &&
+              weekDays.map((date, i) => {
+                const dayRequests = getRequestsByDay(date);
+                const hasPending =
+                  Array.isArray(dayRequests) &&
+                  dayRequests.some((req) => req.status === "pending");
+                const hasApproved =
+                  Array.isArray(dayRequests) &&
+                  dayRequests.some((req) => req.status === "approved");
+                const hasDenied =
+                  Array.isArray(dayRequests) &&
+                  dayRequests.some((req) => req.status === "rejected");
+                const hasFulfilled =
+                  Array.isArray(dayRequests) &&
+                  dayRequests.some((req) => req.status === "fulfilled");
+                const hasOutOfStock =
+                  Array.isArray(dayRequests) &&
+                  dayRequests.some((req) => req.status === "out_of_stock");
+                const hasRequests =
+                  Array.isArray(dayRequests) && dayRequests.length > 0;
 
-              const isToday =
-                format(date, "yyyy-MM-dd") === format(new Date(), "yyyy-MM-dd");
-              const isSelected = selectedDate && isSameDay(date, selectedDate);
+                // Safely format the date
+                const isToday = (() => {
+                  try {
+                    return (
+                      format(date, "yyyy-MM-dd") ===
+                      format(new Date(), "yyyy-MM-dd")
+                    );
+                  } catch (e) {
+                    console.error("Error formatting date:", e);
+                    return false;
+                  }
+                })();
+                const isSelected =
+                  selectedDate && isSameDay(date, selectedDate);
 
-              return (
-                <div
-                  key={`day-cell-${i}`}
-                  className={`flex flex-col items-center py-3 rounded-md cursor-pointer transition-all
+                return (
+                  <div
+                    key={`day-cell-${i}`}
+                    className={`flex flex-col items-center py-3 rounded-md cursor-pointer transition-all
                     ${isToday ? "bg-primary-50" : "hover:bg-neutral-50"}
                     ${isSelected ? "ring-2 ring-primary-300 bg-primary-50" : ""}
                   `}
-                  onClick={() => handleDateClick(date)}
-                  onMouseEnter={(e) => handleMouseEnter(date, e)}
-                  onMouseLeave={handleMouseLeave}
-                >
-                  {/* Day number */}
-                  <div
-                    className={`text-sm font-medium mb-2 ${
-                      isToday ? "text-primary-600" : ""
-                    }`}
+                    onClick={() => handleDateClick(date)}
+                    onMouseEnter={(e) => handleMouseEnter(date, e)}
+                    onMouseLeave={handleMouseLeave}
                   >
-                    {format(date, "d")}
-                  </div>
+                    {/* Day number */}
+                    <div
+                      className={`text-sm font-medium mb-2 ${
+                        isToday ? "text-primary-600" : ""
+                      }`}
+                    >
+                      {(() => {
+                        try {
+                          return format(date, "d");
+                        } catch (e) {
+                          console.error("Error formatting day:", e);
+                          return "-";
+                        }
+                      })()}
+                    </div>
 
-                  {/* Status indicators */}
-                  <div className="flex justify-center space-x-1">
-                    {hasPending && (
-                      <div
-                        className="w-2 h-2 rounded-full bg-warning-400"
-                        title="Pending"
-                      ></div>
-                    )}
-                    {hasApproved && (
-                      <div
-                        className="w-2 h-2 rounded-full bg-success-400"
-                        title="Approved"
-                      ></div>
-                    )}
-                    {hasDenied && (
-                      <div
-                        className="w-2 h-2 rounded-full bg-error-400"
-                        title="Denied"
-                      ></div>
-                    )}
-                    {hasFulfilled && (
-                      <div
-                        className="w-2 h-2 rounded-full bg-primary-400"
-                        title="Fulfilled"
-                      ></div>
-                    )}
-                    {hasOutOfStock && (
-                      <div
-                        className="w-2 h-2 rounded-full bg-neutral-400"
-                        title="Out of Stock"
-                      ></div>
-                    )}
-                    {!hasRequests && (
-                      <div className="text-[8px] text-neutral-400">No data</div>
-                    )}
+                    {/* Status indicators */}
+                    <div className="flex justify-center space-x-1">
+                      {hasPending && (
+                        <div
+                          className="w-2 h-2 rounded-full bg-warning-400"
+                          title="Pending"
+                        ></div>
+                      )}
+                      {hasApproved && (
+                        <div
+                          className="w-2 h-2 rounded-full bg-success-400"
+                          title="Approved"
+                        ></div>
+                      )}
+                      {hasDenied && (
+                        <div
+                          className="w-2 h-2 rounded-full bg-error-400"
+                          title="Denied"
+                        ></div>
+                      )}
+                      {hasFulfilled && (
+                        <div
+                          className="w-2 h-2 rounded-full bg-primary-400"
+                          title="Fulfilled"
+                        ></div>
+                      )}
+                      {hasOutOfStock && (
+                        <div
+                          className="w-2 h-2 rounded-full bg-neutral-400"
+                          title="Out of Stock"
+                        ></div>
+                      )}
+                      {!hasRequests && (
+                        <div className="text-[8px] text-neutral-400">
+                          No data
+                        </div>
+                      )}
+                    </div>
                   </div>
-                </div>
-              );
-            })}
+                );
+              })}
           </div>
 
           {/* Selected date details */}
@@ -257,10 +319,19 @@ export const ActivityCalendar: React.FC<ActivityCalendarProps> = ({
             <div className="mt-4 pt-4 border-t border-neutral-100">
               <h4 className="text-sm font-medium mb-2 flex items-center">
                 <Calendar className="h-4 w-4 mr-1 text-primary-400" />
-                {format(selectedDate, "MMMM d, yyyy")} Requests
+                {(() => {
+                  try {
+                    return format(selectedDate, "MMMM d, yyyy");
+                  } catch (e) {
+                    console.error("Error formatting selected date:", e);
+                    return "Selected Date";
+                  }
+                })()}{" "}
+                Requests
               </h4>
 
-              {getRequestsByDay(selectedDate).length > 0 ? (
+              {Array.isArray(getRequestsByDay(selectedDate)) &&
+              getRequestsByDay(selectedDate).length > 0 ? (
                 <div className="space-y-2 max-h-40 overflow-y-auto pr-2">
                   {getRequestsByDay(selectedDate).map((req) => (
                     <div

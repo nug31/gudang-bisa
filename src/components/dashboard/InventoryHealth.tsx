@@ -9,6 +9,7 @@ import {
 import { Card3D, Card3DContent, Card3DHeader } from "../ui/Card3D";
 import { Button } from "../ui/Button";
 import { useNavigate } from "react-router-dom";
+import { ensureArray, safeMap, safeFilter } from "../../utils/arrayUtils";
 
 interface InventoryHealthProps {
   lowStockCount: number;
@@ -26,9 +27,11 @@ export const InventoryHealth: React.FC<InventoryHealthProps> = ({
 
   // Get low stock items with a threshold of 5
   const lowStockThreshold = 5;
-  const lowStockItems = inventoryItems
-    .filter((item) => (item.quantityAvailable || 0) < lowStockThreshold)
-    .slice(0, showAllItems ? undefined : 3);
+  // Use our safe filter utility to handle non-array values
+  const lowStockItems = safeFilter(
+    inventoryItems,
+    (item) => (item.quantityAvailable || 0) < lowStockThreshold
+  ).slice(0, showAllItems ? undefined : 3);
 
   // Fixed trend data for demo
   const trend = "down";
@@ -104,51 +107,57 @@ export const InventoryHealth: React.FC<InventoryHealthProps> = ({
 
               {/* Low stock items list */}
               <div className="space-y-2 mt-3">
-                {lowStockItems.map((item, index) => (
-                  <div
-                    key={index}
-                    className="p-3 rounded border border-neutral-100 flex items-center justify-between cursor-pointer hover:bg-neutral-50 transition-colors"
-                    onClick={() => navigate(`/inventory/${item.id}`)}
-                  >
-                    <div className="flex items-center">
-                      <div
-                        className={`p-2 rounded mr-3 ${
-                          item.quantityAvailable < 3
-                            ? "bg-error-100"
-                            : "bg-warning-50"
-                        }`}
-                      >
-                        <Package
-                          className={`h-4 w-4 ${
+                {lowStockItems.length > 0 ? (
+                  safeMap(lowStockItems, (item, index) => (
+                    <div
+                      key={index}
+                      className="p-3 rounded border border-neutral-100 flex items-center justify-between cursor-pointer hover:bg-neutral-50 transition-colors"
+                      onClick={() => navigate(`/inventory/${item.id}`)}
+                    >
+                      <div className="flex items-center">
+                        <div
+                          className={`p-2 rounded mr-3 ${
                             item.quantityAvailable < 3
-                              ? "text-error-500"
-                              : "text-warning-500"
+                              ? "bg-error-100"
+                              : "bg-warning-50"
                           }`}
-                        />
-                      </div>
-                      <div>
-                        <p className="text-sm font-medium">{item.name}</p>
-                        <div className="flex items-center mt-1">
-                          <p className="text-xs text-neutral-500 mr-2">
-                            {item.quantityAvailable} in stock
-                          </p>
-                          <p className="text-xs text-neutral-500">
-                            {item.location}
-                          </p>
+                        >
+                          <Package
+                            className={`h-4 w-4 ${
+                              item.quantityAvailable < 3
+                                ? "text-error-500"
+                                : "text-warning-500"
+                            }`}
+                          />
+                        </div>
+                        <div>
+                          <p className="text-sm font-medium">{item.name}</p>
+                          <div className="flex items-center mt-1">
+                            <p className="text-xs text-neutral-500 mr-2">
+                              {item.quantityAvailable} in stock
+                            </p>
+                            <p className="text-xs text-neutral-500">
+                              {item.location}
+                            </p>
+                          </div>
                         </div>
                       </div>
+                      <div
+                        className={`text-xs font-medium px-2 py-1 rounded-full ${
+                          item.quantityAvailable < 3
+                            ? "bg-error-100 text-error-600"
+                            : "bg-warning-100 text-warning-600"
+                        }`}
+                      >
+                        {item.quantityAvailable < 3 ? "Critical" : "Low"}
+                      </div>
                     </div>
-                    <div
-                      className={`text-xs font-medium px-2 py-1 rounded-full ${
-                        item.quantityAvailable < 3
-                          ? "bg-error-100 text-error-600"
-                          : "bg-warning-100 text-warning-600"
-                      }`}
-                    >
-                      {item.quantityAvailable < 3 ? "Critical" : "Low"}
-                    </div>
+                  ))
+                ) : (
+                  <div className="text-center py-2 text-neutral-500">
+                    No low stock items to display
                   </div>
-                ))}
+                )}
 
                 {lowStockCount > 3 && !showAllItems && (
                   <button

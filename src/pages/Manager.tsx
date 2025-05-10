@@ -1,22 +1,42 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { Layout } from "../components/layout/Layout";
 import { useRequests } from "../context/RequestContext";
 import { RequestCard } from "../components/requests/RequestCard";
 import { Input } from "../components/ui/Input";
 import { Select } from "../components/ui/Select";
 import { Button } from "../components/ui/Button";
-import { Search, Filter, RefreshCw, Users, ClipboardList } from "lucide-react";
+import {
+  Search,
+  Filter,
+  RefreshCw,
+  Users,
+  ClipboardList,
+  AlertTriangle,
+  Package,
+  Warehouse,
+  Database,
+} from "lucide-react";
 import { ItemRequest } from "../types";
 import { UserManagement } from "../components/users/UserManagement";
+import { ErrorDisplay } from "../components/ui/ErrorDisplay";
+import { InventoryManagement } from "../components/admin/InventoryManagement";
 
 export const Manager: React.FC = () => {
   const { requests, loading } = useRequests();
 
-  const [activeTab, setActiveTab] = useState<"requests" | "users">("requests");
+  const [activeTab, setActiveTab] = useState<
+    "requests" | "users" | "inventory"
+  >("requests");
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("pending");
   const [priorityFilter, setPriorityFilter] = useState("all");
   const [sortOrder, setSortOrder] = useState("newest");
+  const [error, setError] = useState<string | null>("Failed to fetch users");
+
+  // Clear error when changing tabs
+  useEffect(() => {
+    setError(null);
+  }, [activeTab]);
 
   // Filter and sort requests
   const filteredRequests = requests
@@ -71,9 +91,11 @@ export const Manager: React.FC = () => {
     <Layout>
       <div className="space-y-6 animate-fade-in">
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-          <h1 className="text-2xl font-bold text-neutral-900">Manager Dashboard</h1>
+          <h1 className="text-2xl font-bold text-neutral-900">
+            Manager Dashboard
+          </h1>
 
-          <div className="flex space-x-2">
+          <div className="flex flex-wrap gap-2">
             <Button
               variant={activeTab === "requests" ? "primary" : "outline"}
               onClick={() => setActiveTab("requests")}
@@ -82,14 +104,36 @@ export const Manager: React.FC = () => {
               Requests
             </Button>
             <Button
+              variant={activeTab === "inventory" ? "primary" : "outline"}
+              onClick={() => setActiveTab("inventory")}
+              leftIcon={<Package className="h-4 w-4" />}
+            >
+              Inventory
+            </Button>
+            <Button
               variant={activeTab === "users" ? "primary" : "outline"}
               onClick={() => setActiveTab("users")}
               leftIcon={<Users className="h-4 w-4" />}
             >
               Users
             </Button>
+            <a href="/database-test">
+              <Button
+                variant="outline"
+                leftIcon={<Database className="h-4 w-4" />}
+              >
+                Database Test
+              </Button>
+            </a>
           </div>
         </div>
+
+        {/* Error display */}
+        {error && activeTab === "users" && (
+          <div className="mb-4">
+            <ErrorDisplay message={error} onRetry={() => setError(null)} />
+          </div>
+        )}
 
         {activeTab === "requests" ? (
           <>
@@ -113,7 +157,6 @@ export const Manager: React.FC = () => {
                   ]}
                   value={statusFilter}
                   onChange={(value) => setStatusFilter(value)}
-                  leftIcon={<Filter className="h-4 w-4" />}
                 />
 
                 <Select
@@ -135,7 +178,6 @@ export const Manager: React.FC = () => {
                   ]}
                   value={sortOrder}
                   onChange={(value) => setSortOrder(value)}
-                  leftIcon={<RefreshCw className="h-4 w-4" />}
                 />
               </div>
             </div>
@@ -153,7 +195,11 @@ export const Manager: React.FC = () => {
               )}
             </div>
           </>
+        ) : activeTab === "inventory" ? (
+          // Inventory Management Tab
+          <InventoryManagement />
         ) : (
+          // User Management Tab
           <UserManagement />
         )}
       </div>

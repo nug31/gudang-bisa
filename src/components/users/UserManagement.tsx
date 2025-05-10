@@ -13,6 +13,7 @@ import {
   Check,
   Search,
   AlertTriangle,
+  RefreshCw,
 } from "lucide-react";
 import { useAuth } from "../../context/AuthContext";
 
@@ -43,23 +44,141 @@ export const UserManagement: React.FC = () => {
   // Fetch users
   const fetchUsers = async () => {
     setLoading(true);
-    try {
-      const response = await fetch("/db/users", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ action: "getAll" }),
-      });
+    setError(null);
 
-      if (!response.ok) {
-        throw new Error("Failed to fetch users");
+    try {
+      console.log("Attempting to fetch users from Neon database");
+
+      // Try the direct server endpoint
+      try {
+        const response = await fetch("/db/users", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ action: "getAll" }),
+        });
+
+        if (response.ok) {
+          const data = await response.json();
+          console.log("Successfully fetched users from Neon database:", data);
+          setUsers(data);
+          setLoading(false);
+          return;
+        } else {
+          console.log(
+            "Failed to fetch users from Neon database:",
+            response.status
+          );
+        }
+      } catch (dbError) {
+        console.error("Error fetching from Neon database:", dbError);
       }
 
-      const data = await response.json();
-      setUsers(data);
+      // If the direct server endpoint fails, try the API endpoint
+      console.log("Trying fallback to API endpoint");
+      try {
+        const apiResponse = await fetch("/api/users", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            action: "getAll",
+          }),
+        });
+
+        if (apiResponse.ok) {
+          const apiData = await apiResponse.json();
+          console.log("Successfully fetched users from API:", apiData);
+          setUsers(apiData);
+          setLoading(false);
+          return;
+        } else {
+          console.log("Failed to fetch users from API:", apiResponse.status);
+        }
+      } catch (apiError) {
+        console.error("Error fetching from API:", apiError);
+      }
+
+      // If both endpoints fail, use mock data
+      console.log("Both endpoints failed, using mock user data");
+      const mockUsers = [
+        {
+          id: "1",
+          name: "Admin User",
+          email: "admin@example.com",
+          role: "admin",
+          department: "IT",
+          avatarUrl: "/img/avatars/admin.png",
+          createdAt: new Date().toISOString(),
+        },
+        {
+          id: "2",
+          name: "Manager User",
+          email: "manager@example.com",
+          role: "manager",
+          department: "Operations",
+          avatarUrl: "/img/avatars/manager.png",
+          createdAt: new Date().toISOString(),
+        },
+        {
+          id: "3",
+          name: "Regular User",
+          email: "user@example.com",
+          role: "user",
+          department: "Sales",
+          avatarUrl: "/img/avatars/user.png",
+          createdAt: new Date().toISOString(),
+        },
+      ];
+
+      console.log("Using mock users:", mockUsers);
+      setUsers(mockUsers);
+
+      // Set a more informative error message
+      setError(
+        "Using mock data - database connection failed. Please check server connection."
+      );
     } catch (err) {
-      setError(err instanceof Error ? err.message : "An error occurred");
+      console.error("Unexpected error in fetchUsers:", err);
+      setError(
+        err instanceof Error ? err.message : "An unknown error occurred"
+      );
+
+      // Use mock data as last resort
+      const mockUsers = [
+        {
+          id: "1",
+          name: "Admin User",
+          email: "admin@example.com",
+          role: "admin",
+          department: "IT",
+          avatarUrl: "/img/avatars/admin.png",
+          createdAt: new Date().toISOString(),
+        },
+        {
+          id: "2",
+          name: "Manager User",
+          email: "manager@example.com",
+          role: "manager",
+          department: "Operations",
+          avatarUrl: "/img/avatars/manager.png",
+          createdAt: new Date().toISOString(),
+        },
+        {
+          id: "3",
+          name: "Regular User",
+          email: "user@example.com",
+          role: "user",
+          department: "Sales",
+          avatarUrl: "/img/avatars/user.png",
+          createdAt: new Date().toISOString(),
+        },
+      ];
+
+      console.log("Using mock users as last resort:", mockUsers);
+      setUsers(mockUsers);
     } finally {
       setLoading(false);
     }
@@ -102,28 +221,89 @@ export const UserManagement: React.FC = () => {
     e.preventDefault();
 
     try {
-      const response = await fetch("/db/users", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          action: "create",
-          ...formData,
-        }),
-      });
+      console.log("Attempting to add user with Neon database");
 
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.message || "Failed to add user");
+      // Try the direct server endpoint
+      try {
+        const response = await fetch("/db/users", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            action: "create",
+            ...formData,
+          }),
+        });
+
+        if (response.ok) {
+          const newUser = await response.json();
+          console.log("Successfully added user to Neon database:", newUser);
+          setUsers((prev) => [...prev, newUser]);
+          setShowAddForm(false);
+          resetForm();
+          return;
+        } else {
+          console.log("Failed to add user to Neon database:", response.status);
+          const errorData = await response.json();
+          console.error("Error data:", errorData);
+          throw new Error(errorData.message || "Failed to add user");
+        }
+      } catch (dbError) {
+        console.error("Error adding user to Neon database:", dbError);
+
+        // If the direct server endpoint fails, try the API endpoint
+        console.log("Trying fallback to API endpoint");
+        try {
+          const apiResponse = await fetch("/api/users", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              action: "create",
+              ...formData,
+            }),
+          });
+
+          if (apiResponse.ok) {
+            const newUser = await apiResponse.json();
+            console.log("Successfully added user with API:", newUser);
+            setUsers((prev) => [...prev, newUser]);
+            setShowAddForm(false);
+            resetForm();
+            return;
+          } else {
+            console.log("Failed to add user with API:", apiResponse.status);
+            const errorData = await apiResponse.json();
+            console.error("Error data:", errorData);
+            throw new Error(errorData.message || "Failed to add user");
+          }
+        } catch (apiError) {
+          console.error("Error adding user with API:", apiError);
+          throw apiError;
+        }
       }
+    } catch (err) {
+      console.error("Error in handleAddUser:", err);
+      setError(err instanceof Error ? err.message : "An error occurred");
 
-      const newUser = await response.json();
-      setUsers((prev) => [...prev, newUser]);
+      // Create a mock user as fallback for development
+      console.log("Creating mock user as fallback for development");
+      const mockUser = {
+        id: Math.random().toString(36).substring(2, 15),
+        ...formData,
+        createdAt: new Date().toISOString(),
+      };
+
+      setUsers((prev) => [...prev, mockUser]);
       setShowAddForm(false);
       resetForm();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "An error occurred");
+
+      // Set a more informative error message
+      setError(
+        "Using mock data - database connection failed. Please check server connection."
+      );
     }
   };
 
@@ -145,42 +325,121 @@ export const UserManagement: React.FC = () => {
     e.preventDefault();
 
     try {
-      const response = await fetch("/db/users", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          action: "update",
-          id: userId,
-          ...formData,
-        }),
-      });
+      console.log("Attempting to update user with Neon database");
 
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.message || "Failed to update user");
+      // Try the direct server endpoint
+      try {
+        const response = await fetch("/db/users", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            action: "update",
+            id: userId,
+            ...formData,
+          }),
+        });
+
+        if (response.ok) {
+          const updatedUser = await response.json();
+          console.log(
+            "Successfully updated user in Neon database:",
+            updatedUser
+          );
+
+          // Update the users state with the updated user
+          setUsers((prev) => {
+            const newUsers = prev.map((user) =>
+              user.id === userId ? updatedUser : user
+            );
+            console.log("Updated users state:", newUsers);
+            return newUsers;
+          });
+
+          setEditingUserId(null);
+          resetForm();
+          return;
+        } else {
+          console.log(
+            "Failed to update user in Neon database:",
+            response.status
+          );
+          const errorData = await response.json();
+          console.error("Error data:", errorData);
+          throw new Error(errorData.message || "Failed to update user");
+        }
+      } catch (dbError) {
+        console.error("Error updating user in Neon database:", dbError);
+
+        // If the direct server endpoint fails, try the API endpoint
+        console.log("Trying fallback to API endpoint");
+        try {
+          const apiResponse = await fetch("/api/users", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              action: "update",
+              id: userId,
+              ...formData,
+            }),
+          });
+
+          if (apiResponse.ok) {
+            const updatedUser = await apiResponse.json();
+            console.log("Successfully updated user with API:", updatedUser);
+
+            // Update the users state with the updated user
+            setUsers((prev) => {
+              const newUsers = prev.map((user) =>
+                user.id === userId ? updatedUser : user
+              );
+              console.log("Updated users state:", newUsers);
+              return newUsers;
+            });
+
+            setEditingUserId(null);
+            resetForm();
+            return;
+          } else {
+            console.log("Failed to update user with API:", apiResponse.status);
+            const errorData = await apiResponse.json();
+            console.error("Error data:", errorData);
+            throw new Error(errorData.message || "Failed to update user");
+          }
+        } catch (apiError) {
+          console.error("Error updating user with API:", apiError);
+          throw apiError;
+        }
       }
+    } catch (err) {
+      console.error("Error in handleUpdateUser:", err);
+      setError(err instanceof Error ? err.message : "An error occurred");
 
-      const updatedUser = await response.json();
-      console.log("Response from server:", updatedUser);
+      // Update the user locally as fallback for development
+      console.log("Updating user locally as fallback for development");
+      const mockUpdatedUser = {
+        ...users.find((user) => user.id === userId),
+        ...formData,
+        id: userId,
+      };
 
-      // Update the users state with the updated user
       setUsers((prev) => {
         const newUsers = prev.map((user) =>
-          user.id === userId ? updatedUser : user
+          user.id === userId ? mockUpdatedUser : user
         );
-        console.log("Updated users state:", newUsers);
         return newUsers;
       });
 
       setEditingUserId(null);
       resetForm();
 
-      // Force a refresh to ensure the UI updates correctly
-      fetchUsers();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "An error occurred");
+      // Set a more informative error message
+      setError(
+        "Using mock data - database connection failed. Please check server connection."
+      );
     }
   };
 
@@ -191,25 +450,78 @@ export const UserManagement: React.FC = () => {
     }
 
     try {
-      const response = await fetch("/db/users", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          action: "delete",
-          id: userId,
-        }),
-      });
+      console.log("Attempting to delete user with Neon database");
 
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.message || "Failed to delete user");
+      // Try the direct server endpoint
+      try {
+        const response = await fetch("/db/users", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            action: "delete",
+            id: userId,
+          }),
+        });
+
+        if (response.ok) {
+          console.log("Successfully deleted user from Neon database");
+          setUsers((prev) => prev.filter((user) => user.id !== userId));
+          return;
+        } else {
+          console.log(
+            "Failed to delete user from Neon database:",
+            response.status
+          );
+          const errorData = await response.json();
+          console.error("Error data:", errorData);
+          throw new Error(errorData.message || "Failed to delete user");
+        }
+      } catch (dbError) {
+        console.error("Error deleting user from Neon database:", dbError);
+
+        // If the direct server endpoint fails, try the API endpoint
+        console.log("Trying fallback to API endpoint");
+        try {
+          const apiResponse = await fetch("/api/users", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              action: "delete",
+              id: userId,
+            }),
+          });
+
+          if (apiResponse.ok) {
+            console.log("Successfully deleted user with API");
+            setUsers((prev) => prev.filter((user) => user.id !== userId));
+            return;
+          } else {
+            console.log("Failed to delete user with API:", apiResponse.status);
+            const errorData = await apiResponse.json();
+            console.error("Error data:", errorData);
+            throw new Error(errorData.message || "Failed to delete user");
+          }
+        } catch (apiError) {
+          console.error("Error deleting user with API:", apiError);
+          throw apiError;
+        }
       }
-
-      setUsers((prev) => prev.filter((user) => user.id !== userId));
     } catch (err) {
+      console.error("Error in handleDeleteUser:", err);
       setError(err instanceof Error ? err.message : "An error occurred");
+
+      // Delete the user locally as fallback for development
+      console.log("Deleting user locally as fallback for development");
+      setUsers((prev) => prev.filter((user) => user.id !== userId));
+
+      // Set a more informative error message
+      setError(
+        "Using mock data - database connection failed. Please check server connection."
+      );
     }
   };
 
@@ -262,10 +574,31 @@ export const UserManagement: React.FC = () => {
     <div className="space-y-6">
       {error && (
         <div className="bg-error-50 border border-error-200 text-error-700 px-4 py-3 rounded-md mb-4">
-          {error}
-          <button className="float-right" onClick={() => setError(null)}>
-            <X size={16} />
-          </button>
+          <div className="flex items-center justify-between">
+            <div className="flex items-center">
+              <AlertTriangle className="h-5 w-5 mr-2" />
+              <span>{error}</span>
+            </div>
+            <div className="flex items-center">
+              {error.includes("mock data") && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={fetchUsers}
+                  className="mr-2 text-sm"
+                  leftIcon={<RefreshCw size={14} />}
+                >
+                  Retry
+                </Button>
+              )}
+              <button
+                className="text-error-500 hover:text-error-700"
+                onClick={() => setError(null)}
+              >
+                <X size={16} />
+              </button>
+            </div>
+          </div>
         </div>
       )}
 

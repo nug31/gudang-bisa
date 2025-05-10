@@ -309,12 +309,89 @@ exports.handler = async (event, context) => {
 
       case "create":
         try {
-          // Validate request data
+          // Check for direct parameters first (for compatibility with neon-requests.js)
+          const userId = data.userId || (data.request && data.request.userId);
+          const itemId =
+            data.itemId ||
+            (data.request &&
+              (data.request.itemId || data.request.inventoryItemId));
+          const quantity =
+            data.quantity || (data.request && data.request.quantity) || 1;
+          const reason =
+            data.reason ||
+            (data.request &&
+              (data.request.reason || data.request.description)) ||
+            "";
+
+          // If we have direct parameters, use them to create a request
+          if (userId && itemId) {
+            console.log("Creating request with direct parameters:", {
+              userId,
+              itemId,
+              quantity,
+              reason,
+            });
+
+            const client = await pool.connect();
+
+            // Get the item details
+            const itemQuery =
+              "SELECT name, category_id FROM inventory_items WHERE id = $1";
+            const itemResult = await client.query(itemQuery, [itemId]);
+
+            if (itemResult.rows.length === 0) {
+              client.release();
+              return {
+                statusCode: 404,
+                headers,
+                body: JSON.stringify({ message: "Item not found" }),
+              };
+            }
+
+            const itemName = itemResult.rows[0].name;
+            const categoryId = itemResult.rows[0].category_id;
+            const title = `Request for ${itemName}`;
+            const description = reason || `Request for ${quantity} ${itemName}`;
+            const requestId = uuidv4();
+            const now = new Date().toISOString();
+
+            // Insert the request
+            const query = `
+              INSERT INTO requests (id, title, description, status, user_id, item_id, quantity, created_at, updated_at)
+              VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+              RETURNING *
+            `;
+
+            const values = [
+              requestId,
+              title,
+              description,
+              "pending",
+              userId,
+              itemId,
+              quantity,
+              now,
+              now,
+            ];
+
+            const result = await client.query(query, values);
+            client.release();
+
+            return {
+              statusCode: 201,
+              headers,
+              body: JSON.stringify(result.rows[0]),
+            };
+          }
+
+          // Fall back to the request object if direct parameters aren't available
           if (!data.request) {
             return {
               statusCode: 400,
               headers,
-              body: JSON.stringify({ message: "Request data is required" }),
+              body: JSON.stringify({
+                message: "User ID, item ID, and quantity are required",
+              }),
             };
           }
 
@@ -442,6 +519,20 @@ exports.handler = async (event, context) => {
             }),
           };
         }
+
+        // Make sure formattedCreatedRequest is defined before returning
+        if (!formattedCreatedRequest) {
+          console.error("formattedCreatedRequest is undefined");
+          return {
+            statusCode: 500,
+            headers,
+            body: JSON.stringify({
+              message: "Error creating request: formatted request is undefined",
+            }),
+          };
+        }
+
+        console.log("Successfully created request:", formattedCreatedRequest);
 
         return {
           statusCode: 201,

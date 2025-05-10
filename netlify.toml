@@ -5,52 +5,102 @@
 
 [dev]
   command = "npm run dev"
-  port = 5174
-  targetPort = 5174
-  publish = "dist"
-  autoLaunch = true
+  port = 8888
+  targetPort = 5173
 
-# Proxy API requests to the backend server
+# Direct database access endpoints
 [[redirects]]
-  from = "/api/*"
-  to = "/.netlify/functions/api/:splat"
+  from = "/db/auth"
+  to = "/.netlify/functions/neon-auth"
   status = 200
 
 [[redirects]]
-  from = "/db/*"
-  to = "/.netlify/functions/db/:splat"
-  status = 200
-
-[[redirects]]
-  from = "/api/inventory"
-  to = "/.netlify/functions/inventory"
+  from = "/db/users"
+  to = "/.netlify/functions/neon-users"
   status = 200
 
 [[redirects]]
   from = "/db/inventory"
-  to = "/.netlify/functions/db-inventory"
+  to = "/.netlify/functions/neon-inventory"
   status = 200
 
 [[redirects]]
   from = "/db/categories"
-  to = "/.netlify/functions/db-categories"
+  to = "/.netlify/functions/neon-categories"
   status = 200
 
-# Redirect all requests to index.html for SPA routing
+[[redirects]]
+  from = "/db/requests"
+  to = "/.netlify/functions/neon-requests"
+  status = 200
+
+# Legacy API endpoints
+[[redirects]]
+  from = "/api/*"
+  to = "/.netlify/functions/:splat"
+  status = 200
+
+# Legacy Neon endpoints
+[[redirects]]
+  from = "/neon/categories"
+  to = "/.netlify/functions/neon-categories"
+  status = 200
+
+[[redirects]]
+  from = "/neon/test"
+  to = "/.netlify/functions/test-neon"
+  status = 200
+
+[[redirects]]
+  from = "/db/test"
+  to = "/.netlify/functions/test-db"
+  status = 200
+
+[[redirects]]
+  from = "/db/test-inventory"
+  to = "/.netlify/functions/test-inventory"
+  status = 200
+
+[[redirects]]
+  from = "/db/test-connection"
+  to = "/.netlify/functions/test-db-connection"
+  status = 200
+
+[[redirects]]
+  from = "/neon/auth"
+  to = "/.netlify/functions/neon-auth"
+  status = 200
+
+[[redirects]]
+  from = "/neon/auth/login"
+  to = "/.netlify/functions/neon-auth"
+  status = 200
+
+[[redirects]]
+  from = "/neon/auth/register"
+  to = "/.netlify/functions/neon-auth"
+  status = 200
+
+[[redirects]]
+  from = "/neon/query"
+  to = "/.netlify/functions/neon-query"
+  status = 200
+
+[[redirects]]
+  from = "/neon/init-db"
+  to = "/.netlify/functions/init-neon-db"
+  status = 200
+
+[[redirects]]
+  from = "/neon/inventory"
+  to = "/.netlify/functions/neon-inventory"
+  status = 200
+
+# SPA fallback
 [[redirects]]
   from = "/*"
   to = "/index.html"
   status = 200
 
-# Environment variable settings
-[context.production.environment]
-  VITE_API_URL = "https://gudangmitra-api.netlify.app"
-  VITE_USE_MOCK_DATA = "false"
-
-[context.deploy-preview.environment]
-  VITE_API_URL = "https://gudangmitra-api.netlify.app"
-  VITE_USE_MOCK_DATA = "false"
-
-[context.branch-deploy.environment]
-  VITE_API_URL = "https://gudangmitra-api.netlify.app"
-  VITE_USE_MOCK_DATA = "false"
+[functions]
+  node_bundler = "esbuild"

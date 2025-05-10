@@ -5,7 +5,7 @@ import { AlertTriangle, Package, ArrowLeft, Search } from "lucide-react";
 import { Button } from "../components/ui/Button";
 import { Card, CardContent } from "../components/ui/Card";
 import { useInventory } from "../context/InventoryContext";
-import { useCategories } from "../hooks";
+import { useCategories } from "../hooks/useCategories";
 
 export const LowStockItems: React.FC = () => {
   const navigate = useNavigate();

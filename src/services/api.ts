@@ -37,14 +37,14 @@ const handleResponse = async (response: Response) => {
 // Request API service
 export const requestApi = {
   // Get all requests
-  getAll: async (): Promise<ItemRequest[]> => {
+  getAll: async (timestamp?: number): Promise<ItemRequest[]> => {
     try {
       const response = await fetch(`${API_BASE_URL}/requests`);
       return handleResponse(response);
     } catch (error) {
       console.error("Error fetching requests:", error);
       // Fallback to direct database connection if API fails
-      return requestDbApi.getAll();
+      return requestDbApi.getAll(timestamp);
     }
   },
 
@@ -141,18 +141,37 @@ export const requestApi = {
 // Direct database connection API (fallback)
 export const requestDbApi = {
   // Get all requests
-  getAll: async (): Promise<ItemRequest[]> => {
+  getAll: async (timestamp?: number): Promise<ItemRequest[]> => {
     try {
-      const response = await fetch("/db/requests", {
+      console.log(
+        `Fetching all requests with timestamp: ${timestamp || "none"}`
+      );
+
+      const response = await fetch("/.netlify/functions/neon-requests", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
+          "Cache-Control": "no-cache, no-store, must-revalidate",
+          Pragma: "no-cache",
+          Expires: "0",
         },
         body: JSON.stringify({
           action: "getAll",
+          timestamp: timestamp || new Date().getTime(), // Add timestamp to prevent caching
         }),
       });
-      return handleResponse(response);
+
+      console.log(`Request response status: ${response.status}`);
+
+      const responseData = await handleResponse(response);
+
+      // Handle both formats: array or {requests: array}
+      const requests = responseData.requests || responseData;
+
+      console.log(`Received ${requests.length} requests from server`);
+      console.log("Response format:", responseData);
+
+      return requests;
     } catch (error) {
       console.error("Error fetching requests from database:", error);
       throw error;
@@ -162,7 +181,7 @@ export const requestDbApi = {
   // Get a request by ID
   getById: async (id: string): Promise<ItemRequest> => {
     try {
-      const response = await fetch("/db/requests", {
+      const response = await fetch("/.netlify/functions/neon-requests", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -183,35 +202,114 @@ export const requestDbApi = {
   create: async (
     request: Omit<ItemRequest, "id" | "createdAt" | "updatedAt">
   ): Promise<ItemRequest> => {
-    const maxRetries = 2;
+    const maxRetries = 3; // Increased from 2 to 3
     let retryCount = 0;
     let lastError: any = null;
+    let lastResponse: Response | null = null;
+
+    // Create a complete request object that can be used as a fallback
+    const now = new Date().toISOString();
+    const newRequest = {
+      ...request,
+      id: uuidv4(),
+      createdAt: now,
+      updatedAt: now,
+    };
+
+    console.log("=== REQUEST CREATION STARTED ===");
+    console.log("Original request data:", request);
+    console.log("Complete request object with ID and timestamps:", newRequest);
 
     while (retryCount <= maxRetries) {
       try {
-        const now = new Date().toISOString();
-        const newRequest = {
-          ...request,
-          id: uuidv4(),
-          createdAt: now,
-          updatedAt: now,
-        };
-
         console.log(`Attempt ${retryCount + 1} to create request:`, newRequest);
 
-        const response = await fetch("/db/requests", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            action: "create",
-            request: newRequest,
-          }),
-        });
+        // Make sure we have all required fields
+        if (!newRequest.userId) {
+          console.error("Missing userId in request data");
+          throw new Error("User ID is required for creating a request");
+        }
+
+        if (!newRequest.itemId && !newRequest.inventoryItemId) {
+          console.error("Missing itemId/inventoryItemId in request data");
+          throw new Error("Item ID is required for creating a request");
+        }
+
+        // Log the request body for debugging
+        const requestBody = {
+          action: "create",
+          // Include the required fields directly at the top level for the Netlify function
+          userId: newRequest.userId,
+          itemId: newRequest.itemId || newRequest.inventoryItemId,
+          quantity: newRequest.quantity || 1,
+          reason: newRequest.reason || newRequest.description,
+          // Also include the full request object for compatibility
+          request: newRequest,
+          timestamp: Date.now(), // Add timestamp to prevent caching
+        };
+        console.log(
+          "Request body being sent to server:",
+          JSON.stringify(requestBody)
+        );
+
+        console.log("Sending request to /.netlify/functions/neon-requests");
+
+        // Add timeout to fetch request
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 15000); // 15 second timeout
+
+        let response;
+        try {
+          response = await fetch("/.netlify/functions/neon-requests", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              "Cache-Control": "no-cache, no-store, must-revalidate",
+              Pragma: "no-cache",
+              Expires: "0",
+            },
+            body: JSON.stringify(requestBody),
+            signal: controller.signal,
+            // Add credentials to ensure cookies are sent
+            credentials: "include",
+          });
+
+          // Clear the timeout since the request completed
+          clearTimeout(timeoutId);
+        } catch (fetchError) {
+          // Clear the timeout to prevent memory leaks
+          clearTimeout(timeoutId);
+
+          // Check if the error was due to timeout
+          if (fetchError.name === "AbortError") {
+            throw new Error(
+              "Request timed out after 15 seconds. The server might be experiencing high load or connectivity issues."
+            );
+          }
+
+          // Re-throw other errors
+          throw fetchError;
+        }
+
+        lastResponse = response;
+        console.log(`Server response status: ${response.status}`);
+
+        // Log more details about the response
+        console.log("Response headers:", response.headers);
 
         // Check if response is empty
         const contentType = response.headers.get("content-type");
+        console.log("Response content type:", contentType);
+
+        // Try to get the response text for debugging regardless of content type
+        let responseText = "";
+        try {
+          responseText = await response.clone().text();
+          console.log("Raw response text:", responseText);
+        } catch (textError) {
+          console.error("Could not read response text:", textError);
+        }
+
         if (!contentType || !contentType.includes("application/json")) {
           console.warn("Server did not return JSON. Status:", response.status);
           if (response.ok) {
@@ -221,30 +319,84 @@ export const requestDbApi = {
             );
             return newRequest as ItemRequest;
           }
+
+          // We already tried to get the error details above
+          const errorDetails = responseText;
+
           throw new Error(
-            `Server returned non-JSON response: ${response.status} ${response.statusText}`
+            `Server returned non-JSON response: ${response.status} ${
+              response.statusText
+            }${errorDetails ? ` - ${errorDetails}` : ""}`
           );
         }
 
         if (!response.ok) {
-          const errorText = await response.text();
-          console.error("Server error response:", errorText);
+          let errorData: any = {};
+          try {
+            // Try to parse the error response as JSON
+            errorData = await response.json();
+          } catch (jsonError) {
+            // If it's not JSON, get the text
+            try {
+              const errorText = await response.text();
+              console.error("Server error response (text):", errorText);
+              throw new Error(
+                `Server error: ${response.status} ${response.statusText} - ${errorText}`
+              );
+            } catch (textError) {
+              console.error("Could not read error response:", textError);
+              throw new Error(
+                `Server error: ${response.status} ${response.statusText}`
+              );
+            }
+          }
+
+          console.error("Server error response (JSON):", errorData);
           throw new Error(
-            `Server error: ${response.status} ${response.statusText}`
+            `Server error: ${response.status} ${response.statusText} - ${
+              errorData.message || errorData.error || JSON.stringify(errorData)
+            }`
           );
         }
 
         try {
-          return await handleResponse(response);
-        } catch (parseError) {
-          console.error(
-            "Failed to parse response, using request data as fallback"
-          );
-          // If we can't parse the response but the request was successful, return the request data
-          if (response.ok) {
+          console.log("Attempting to parse response as JSON");
+          const data = await handleResponse(response);
+          console.log("Request created successfully with data:", data);
+
+          // Validate that we have a proper response with at least an ID
+          if (!data || !data.id) {
+            console.warn(
+              "Response data is missing ID, using request data as fallback"
+            );
             return newRequest as ItemRequest;
           }
-          throw parseError;
+
+          return data;
+        } catch (parseError) {
+          console.error(
+            "Failed to parse response, using request data as fallback:",
+            parseError
+          );
+
+          // If we can't parse the response but the request was successful, return the request data
+          if (response.ok) {
+            console.log("Using request data as fallback response");
+            return newRequest as ItemRequest;
+          }
+
+          // Try to get more information about the error
+          let errorText = "";
+          try {
+            errorText = await response.clone().text();
+            console.error("Error response text:", errorText);
+          } catch (textError) {
+            console.error("Could not read error response text:", textError);
+          }
+
+          throw new Error(
+            `Failed to parse response: ${parseError}. Response text: ${errorText}`
+          );
         }
       } catch (error) {
         console.error(
@@ -256,9 +408,9 @@ export const requestDbApi = {
 
         if (retryCount <= maxRetries) {
           // Wait before retrying (exponential backoff)
-          await new Promise((resolve) =>
-            setTimeout(resolve, 1000 * retryCount)
-          );
+          const delay = 1000 * Math.pow(2, retryCount - 1); // 1s, 2s, 4s, 8s
+          console.log(`Waiting ${delay}ms before retry...`);
+          await new Promise((resolve) => setTimeout(resolve, delay));
           console.log(
             `Retrying request creation (attempt ${retryCount + 1})...`
           );
@@ -267,8 +419,28 @@ export const requestDbApi = {
     }
 
     console.error(`Failed to create request after ${maxRetries + 1} attempts`);
+
+    // If we have a response but couldn't process it, provide more detailed error
+    if (lastResponse) {
+      try {
+        const responseText = await lastResponse.text();
+        console.error("Last server response:", responseText);
+        throw new Error(
+          `Server returned status ${lastResponse.status} ${lastResponse.statusText}. Response: ${responseText}`
+        );
+      } catch (textError) {
+        console.error("Could not read last response:", textError);
+      }
+    }
+
+    // If all else fails, return a more detailed error
     throw (
-      lastError || new Error("Failed to create request after multiple attempts")
+      lastError ||
+      new Error(
+        `Failed to create request after ${
+          maxRetries + 1
+        } attempts. Check your network connection and try again.`
+      )
     );
   },
 
@@ -277,26 +449,73 @@ export const requestDbApi = {
     try {
       console.log("requestDbApi: Updating request:", request);
 
-      const updatedRequest = {
+      // Make sure user roles are preserved properly
+      let updatedRequest = {
         ...request,
         updatedAt: new Date().toISOString(),
       };
+
+      // Add debugging for user roles
+      if (updatedRequest.approvedBy) {
+        console.log("Approving with user ID:", updatedRequest.approvedBy);
+        // Get user from localStorage as backup
+        try {
+          const storedUser = localStorage.getItem("user");
+          if (storedUser) {
+            const parsedUser = JSON.parse(storedUser);
+            console.log("User from localStorage:", parsedUser);
+            console.log("User role from localStorage:", parsedUser.role);
+          }
+        } catch (e) {
+          console.error("Error getting user from localStorage:", e);
+        }
+      }
 
       console.log(
         "requestDbApi: Prepared request with updated timestamp:",
         updatedRequest
       );
 
-      const response = await fetch("/db/requests", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          action: "update",
-          request: updatedRequest,
-        }),
-      });
+      // Add timeout to fetch request
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 15000); // 15 second timeout
+
+      let response;
+      try {
+        response = await fetch("/.netlify/functions/neon-requests", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "Cache-Control": "no-cache, no-store, must-revalidate",
+            Pragma: "no-cache",
+            Expires: "0",
+          },
+          body: JSON.stringify({
+            action: "update",
+            request: updatedRequest,
+            timestamp: Date.now(), // Add timestamp to prevent caching
+          }),
+          signal: controller.signal,
+          // Add credentials to ensure cookies are sent
+          credentials: "include",
+        });
+
+        // Clear the timeout since the request completed
+        clearTimeout(timeoutId);
+      } catch (fetchError) {
+        // Clear the timeout to prevent memory leaks
+        clearTimeout(timeoutId);
+
+        // Check if the error was due to timeout
+        if (fetchError.name === "AbortError") {
+          throw new Error(
+            "Request timed out after 15 seconds. The server might be experiencing high load or connectivity issues."
+          );
+        }
+
+        // Re-throw other errors
+        throw fetchError;
+      }
 
       console.log("requestDbApi: Update response status:", response.status);
 
@@ -313,7 +532,7 @@ export const requestDbApi = {
   // Delete a request
   delete: async (id: string): Promise<void> => {
     try {
-      const response = await fetch("/db/requests", {
+      const response = await fetch("/.netlify/functions/neon-requests", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -345,7 +564,7 @@ export const requestDbApi = {
         createdAt: new Date().toISOString(),
       };
 
-      const response = await fetch("/db/requests", {
+      const response = await fetch("/.netlify/functions/neon-requests", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",

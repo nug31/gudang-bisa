@@ -137,6 +137,7 @@ export default {
         card: "0 2px 8px 0 rgba(0, 0, 0, 0.05)",
         "card-hover": "0 8px 24px rgba(0, 0, 0, 0.12)",
         dropdown: "0 4px 12px rgba(0, 0, 0, 0.1)",
+        glow: "0 0 15px rgba(0, 102, 255, 0.5)",
         "3d-sm":
           "0 1px 2px rgba(0,0,0,0.1), 0 4px 8px rgba(0,0,0,0.05), 0 1px 1px rgba(255,255,255,0.25) inset",
         "3d-md":

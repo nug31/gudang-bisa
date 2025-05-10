@@ -14,6 +14,7 @@ import { Button } from "../ui/Button";
 import { formatCurrency } from "../../utils/formatters";
 import { useInventory } from "../../context/InventoryContext";
 import { useAuth } from "../../context/AuthContext";
+import { isAdminOrManager } from "../../utils/permissions";
 
 interface InventoryItemProps {
   item: InventoryItemType;
@@ -33,9 +34,7 @@ export const InventoryItem: React.FC<InventoryItemProps> = ({
 
   const handleDelete = async () => {
     // Check if user has permission to delete
-    if (
-      !(isAdminOrManager || user?.role === "admin" || user?.role === "manager")
-    ) {
+    if (!(isAdminOrManager || isAdminOrManager(user?.role))) {
       alert("Only administrators and managers can delete inventory items");
       return;
     }
@@ -56,10 +55,9 @@ export const InventoryItem: React.FC<InventoryItemProps> = ({
   const handleIncreaseQuantity = async () => {
     setIsUpdatingQuantity(true);
     try {
-      const currentQuantity = Number(item.quantityAvailable) || 0;
       await updateInventoryItem({
         id: item.id,
-        quantityAvailable: currentQuantity + 1,
+        quantityAvailable: item.quantityAvailable + 1,
       });
     } catch (error) {
       console.error("Error updating quantity:", error);
@@ -69,14 +67,13 @@ export const InventoryItem: React.FC<InventoryItemProps> = ({
   };
 
   const handleDecreaseQuantity = async () => {
-    const currentQuantity = Number(item.quantityAvailable) || 0;
-    if (currentQuantity <= 0) return;
+    if (item.quantityAvailable <= 0) return;
 
     setIsUpdatingQuantity(true);
     try {
       await updateInventoryItem({
         id: item.id,
-        quantityAvailable: currentQuantity - 1,
+        quantityAvailable: item.quantityAvailable - 1,
       });
     } catch (error) {
       console.error("Error updating quantity:", error);
@@ -86,10 +83,9 @@ export const InventoryItem: React.FC<InventoryItemProps> = ({
   };
 
   const getStockStatusBadge = () => {
-    const quantity = Number(item.quantityAvailable) || 0;
-    if (quantity === 0) {
+    if (item.quantityAvailable === 0) {
       return <Badge variant="danger">Out of Stock</Badge>;
-    } else if (quantity <= 5) {
+    } else if (item.quantityAvailable <= 5) {
       return <Badge variant="warning">Low Stock</Badge>;
     } else {
       return <Badge variant="success">In Stock</Badge>;
@@ -120,9 +116,7 @@ export const InventoryItem: React.FC<InventoryItemProps> = ({
               <Edit className="h-4 w-4 text-neutral-500" />
             </Button>
 
-            {(isAdminOrManager ||
-              user?.role === "admin" ||
-              user?.role === "manager") && (
+            {(isAdminOrManager || isAdminOrManager(user?.role)) && (
               <Button
                 variant="ghost"
                 size="sm"
@@ -150,18 +144,13 @@ export const InventoryItem: React.FC<InventoryItemProps> = ({
                 variant="outline"
                 size="xs"
                 onClick={handleDecreaseQuantity}
-                disabled={
-                  (Number(item.quantityAvailable) || 0) <= 0 ||
-                  isUpdatingQuantity
-                }
+                disabled={item.quantityAvailable <= 0 || isUpdatingQuantity}
                 className="p-1"
               >
                 <Minus className="h-3 w-3" />
               </Button>
 
-              <span className="mx-2 font-medium">
-                {Number(item.quantityAvailable) || 0}
-              </span>
+              <span className="mx-2 font-medium">{item.quantityAvailable}</span>
 
               <Button
                 variant="outline"
@@ -177,9 +166,7 @@ export const InventoryItem: React.FC<InventoryItemProps> = ({
 
           <div>
             <p className="text-xs text-neutral-500">Reserved</p>
-            <p className="font-medium mt-1">
-              {Number(item.quantityReserved) || 0}
-            </p>
+            <p className="font-medium mt-1">{item.quantityReserved}</p>
           </div>
         </div>
 

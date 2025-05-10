@@ -13,6 +13,7 @@ import {
   ClipboardList,
   BarChart3,
   Settings,
+  ShoppingCart,
 } from "lucide-react";
 import { useAuth } from "../../context/AuthContext";
 import { useNotifications } from "../../context/NotificationContext";
@@ -140,7 +141,7 @@ export const Header: React.FC = () => {
                     } as React.CSSProperties
                   }
                 >
-                  <Boxes className="h-4 w-4 mr-2 icon-3d navbar-icon" />
+                  <ShoppingCart className="h-4 w-4 mr-2 icon-3d navbar-icon" />
                   Browse Items
                 </Link>
                 <Link
@@ -169,22 +170,7 @@ export const Header: React.FC = () => {
                   <Boxes className="h-4 w-4 mr-2 icon-3d navbar-icon" />
                   New Order
                 </Link>
-                {/* Show inventory management link for both admin and manager roles */}
-                {(user?.role === "admin" || user?.role === "manager") && (
-                  <Link
-                    to="/inventory"
-                    className="inline-flex items-center px-3 py-2 text-sm font-medium text-neutral-600 border-b-2 border-transparent hover:border-primary-400 hover:text-primary-500 transition-all rounded-md hover:bg-neutral-50 tilt-3d"
-                    style={
-                      {
-                        "--rotateX": "2deg",
-                        "--rotateY": "5deg",
-                      } as React.CSSProperties
-                    }
-                  >
-                    <Warehouse className="h-4 w-4 mr-2 icon-3d navbar-icon" />
-                    Stock Management
-                  </Link>
-                )}
+                {/* Stock Management link removed as requested */}
                 {user?.role === "admin" && (
                   <Link
                     to="/admin"
@@ -501,6 +487,18 @@ export const Header: React.FC = () => {
                   New Order
                 </Link>
 
+                {/* Browse Items link */}
+                <Link
+                  to="/browse"
+                  className="flex items-center pl-4 pr-4 py-3 text-base font-medium text-neutral-700 hover:bg-neutral-50 hover:text-primary-500 border-l-4 border-transparent hover:border-primary-500 transition-all"
+                  onClick={() => setMobileMenuOpen(false)}
+                >
+                  <div className="flex items-center justify-center w-8 h-8 rounded-full bg-primary-50 mr-3">
+                    <ShoppingCart className="h-4 w-4 text-primary-500" />
+                  </div>
+                  Browse Items
+                </Link>
+
                 {/* Admin links */}
                 {user?.role === "admin" && (
                   <>
@@ -519,16 +517,7 @@ export const Header: React.FC = () => {
                       </div>
                       Admin Panel
                     </Link>
-                    <Link
-                      to="/inventory"
-                      className="flex items-center pl-4 pr-4 py-3 text-base font-medium text-neutral-700 hover:bg-neutral-50 hover:text-primary-500 border-l-4 border-transparent hover:border-primary-500 transition-all"
-                      onClick={() => setMobileMenuOpen(false)}
-                    >
-                      <div className="flex items-center justify-center w-8 h-8 rounded-full bg-primary-50 mr-3">
-                        <Warehouse className="h-4 w-4 text-primary-500" />
-                      </div>
-                      Stock Management
-                    </Link>
+                    {/* Stock Management link removed as requested */}
                   </>
                 )}
 
@@ -550,16 +539,7 @@ export const Header: React.FC = () => {
                       </div>
                       Manager Panel
                     </Link>
-                    <Link
-                      to="/inventory"
-                      className="flex items-center pl-4 pr-4 py-3 text-base font-medium text-neutral-700 hover:bg-neutral-50 hover:text-primary-500 border-l-4 border-transparent hover:border-primary-500 transition-all"
-                      onClick={() => setMobileMenuOpen(false)}
-                    >
-                      <div className="flex items-center justify-center w-8 h-8 rounded-full bg-primary-50 mr-3">
-                        <Warehouse className="h-4 w-4 text-primary-500" />
-                      </div>
-                      Stock Management
-                    </Link>
+                    {/* Stock Management link removed as requested */}
                   </>
                 )}
 

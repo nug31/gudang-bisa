@@ -25,6 +25,11 @@
   status = 200
 
 [[redirects]]
+  from = "/db/direct-inventory"
+  to = "/.netlify/functions/direct-inventory"
+  status = 200
+
+[[redirects]]
   from = "/db/categories"
   to = "/.netlify/functions/neon-categories"
   status = 200
@@ -64,6 +69,11 @@
 [[redirects]]
   from = "/db/test-connection"
   to = "/.netlify/functions/test-db-connection"
+  status = 200
+
+[[redirects]]
+  from = "/test-connection"
+  to = "/.netlify/functions/test-connection"
   status = 200
 
 [[redirects]]

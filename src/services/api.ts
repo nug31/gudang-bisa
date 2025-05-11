@@ -1,5 +1,6 @@
 import { ItemRequest, Comment, User } from "../types";
 import { v4 as uuidv4 } from "uuid";
+import { sanitizeUuids, isValidUuid } from "../utils/uuidUtils";
 
 // Base URL for API requests
 const API_BASE_URL = "/api";
@@ -301,58 +302,33 @@ export const requestDbApi = {
           throw new Error("Item ID is required for creating a request");
         }
 
-        // Validate UUID format for itemId and inventoryItemId
-        const isValidUuid = (id: string | null | undefined): boolean => {
-          if (!id) return false;
-          const uuidRegex =
-            /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-          return uuidRegex.test(id);
-        };
+        // Sanitize all UUID fields in the request
+        const sanitizedRequest = sanitizeUuids(newRequest);
 
-        // Get valid itemId or null
-        const rawItemId = newRequest.itemId || newRequest.inventoryItemId;
-        const validItemId = isValidUuid(rawItemId) ? rawItemId : null;
-
-        if (!validItemId) {
-          console.warn(
-            `Invalid UUID format for itemId: "${rawItemId}". Setting to null.`
-          );
-        }
-
-        // Get valid categoryId or null
-        const rawCategoryId = newRequest.categoryId || newRequest.category_id;
-        const validCategoryId = isValidUuid(rawCategoryId)
-          ? rawCategoryId
-          : null;
-
-        if (rawCategoryId && !validCategoryId) {
-          console.warn(
-            `Invalid UUID format for categoryId: "${rawCategoryId}". Setting to null.`
-          );
-        }
+        // Extract the validated UUIDs
+        const validItemId =
+          sanitizedRequest.itemId || sanitizedRequest.inventoryItemId;
+        const validCategoryId =
+          sanitizedRequest.categoryId || sanitizedRequest.category_id;
 
         // Log the request body for debugging
         const requestBody = {
           action: "create",
           // Include the required fields directly at the top level for the Netlify function
-          userId: newRequest.userId,
+          userId: sanitizedRequest.userId,
           itemId: validItemId, // Use validated UUID
-          quantity: newRequest.quantity || 1,
-          reason: newRequest.reason || newRequest.description,
-          title: newRequest.title || `Request for Item`,
+          quantity: sanitizedRequest.quantity || 1,
+          reason: sanitizedRequest.reason || sanitizedRequest.description,
+          title: sanitizedRequest.title || `Request for Item`,
           description:
-            newRequest.description || newRequest.reason || `Request for item`,
-          priority: newRequest.priority || "medium",
+            sanitizedRequest.description ||
+            sanitizedRequest.reason ||
+            `Request for item`,
+          priority: sanitizedRequest.priority || "medium",
           categoryId: validCategoryId, // Use validated UUID
-          status: newRequest.status || "pending",
-          // Also include the full request object for compatibility but with validated UUIDs
-          request: {
-            ...newRequest,
-            itemId: validItemId,
-            inventoryItemId: validItemId,
-            categoryId: validCategoryId,
-            category_id: validCategoryId,
-          },
+          status: sanitizedRequest.status || "pending",
+          // Also include the full sanitized request object for compatibility
+          request: sanitizedRequest,
           timestamp: Date.now(), // Add timestamp to prevent caching
         };
         console.log(
@@ -631,43 +607,8 @@ export const requestDbApi = {
 
         console.log("Prepared request with updated timestamp:", updatedRequest);
 
-        // Validate UUID format for IDs
-        const isValidUuid = (id: string | null | undefined): boolean => {
-          if (!id) return false;
-          const uuidRegex =
-            /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-          return uuidRegex.test(id);
-        };
-
-        // Validate all UUID fields
-        const validInventoryItemId = isValidUuid(updatedRequest.inventoryItemId)
-          ? updatedRequest.inventoryItemId
-          : null;
-        const validItemId = isValidUuid(updatedRequest.itemId)
-          ? updatedRequest.itemId
-          : null;
-        const validCategoryId = isValidUuid(updatedRequest.categoryId)
-          ? updatedRequest.categoryId
-          : null;
-        const validApprovedBy = isValidUuid(updatedRequest.approvedBy)
-          ? updatedRequest.approvedBy
-          : null;
-        const validRejectedBy = isValidUuid(updatedRequest.rejectedBy)
-          ? updatedRequest.rejectedBy
-          : null;
-
-        // Create a sanitized version of the request with valid UUIDs
-        const sanitizedRequest = {
-          ...updatedRequest,
-          inventoryItemId: validInventoryItemId,
-          itemId: validItemId,
-          categoryId: validCategoryId,
-          category_id: validCategoryId,
-          approvedBy: validApprovedBy,
-          approved_by: validApprovedBy,
-          rejectedBy: validRejectedBy,
-          rejected_by: validRejectedBy,
-        };
+        // Sanitize all UUID fields in the request
+        const sanitizedRequest = sanitizeUuids(updatedRequest);
 
         // Log the request body for debugging
         const requestBody = {

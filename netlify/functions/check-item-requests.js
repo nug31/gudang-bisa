@@ -1,4 +1,4 @@
-const { Client } = require("pg");
+const { Pool } = require("pg");
 
 // Try to get the connection string from environment variables first
 const envConnectionString = process.env.NEON_CONNECTION_STRING;
@@ -11,6 +11,17 @@ console.log(
 const connectionString =
   envConnectionString ||
   "postgresql://neondb_owner:npg_zJqB6a8IPdEH@ep-damp-sky-a13sblwc-pooler.ap-southeast-1.aws.neon.tech/neondb?sslmode=require";
+
+// Create a connection pool with optimized settings for Netlify functions
+const pool = new Pool({
+  connectionString,
+  ssl: {
+    rejectUnauthorized: false, // Required for Neon PostgreSQL
+  },
+  max: 1, // Use minimal connections for serverless
+  idleTimeoutMillis: 10000,
+  connectionTimeoutMillis: 10000,
+});
 
 exports.handler = async (event, context) => {
   // Set CORS headers
@@ -30,17 +41,11 @@ exports.handler = async (event, context) => {
     };
   }
 
-  // Create a new client
-  const client = new Client({
-    connectionString,
-    ssl: {
-      rejectUnauthorized: false, // Required for Neon PostgreSQL
-    },
-  });
+  let client;
 
   try {
     console.log("Connecting to Neon database...");
-    await client.connect();
+    client = await pool.connect();
     console.log("Successfully connected to Neon database");
 
     // Check if item_requests table exists
@@ -72,10 +77,14 @@ exports.handler = async (event, context) => {
         ORDER BY ordinal_position;
       `);
       tableStructure = structureResult.rows;
-      console.log(`Retrieved ${tableStructure.length} columns from item_requests table`);
+      console.log(
+        `Retrieved ${tableStructure.length} columns from item_requests table`
+      );
 
       // Count requests in the table
-      const countResult = await client.query("SELECT COUNT(*) FROM item_requests");
+      const countResult = await client.query(
+        "SELECT COUNT(*) FROM item_requests"
+      );
       totalRequests = parseInt(countResult.rows[0].count);
       console.log(`Number of requests in the database: ${totalRequests}`);
 
@@ -100,7 +109,9 @@ exports.handler = async (event, context) => {
       headers,
       body: JSON.stringify({
         success: true,
-        message: tableExists ? "item_requests table found" : "item_requests table not found",
+        message: tableExists
+          ? "item_requests table found"
+          : "item_requests table not found",
         data: {
           tableExists,
           tableStructure,
@@ -123,12 +134,14 @@ exports.handler = async (event, context) => {
       }),
     };
   } finally {
-    // Close the connection
-    try {
-      await client.end();
-      console.log("Database connection closed");
-    } catch (closeError) {
-      console.error("Error closing database connection:", closeError);
+    // Release the client back to the pool
+    if (client) {
+      try {
+        client.release();
+        console.log("Database client released");
+      } catch (releaseError) {
+        console.error("Error releasing database client:", releaseError);
+      }
     }
   }
 };

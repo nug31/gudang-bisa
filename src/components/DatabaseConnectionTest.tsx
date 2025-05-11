@@ -209,7 +209,20 @@ export const DatabaseConnectionTest: React.FC = () => {
                     <div>{result.connectionResult.counts?.users || 0}</div>
 
                     <div>Item Requests:</div>
-                    <div>{result.connectionResult.counts?.requests || 0}</div>
+                    <div
+                      className={
+                        result.connectionResult.counts?.requests
+                          ? ""
+                          : "text-yellow-600 font-medium"
+                      }
+                    >
+                      {result.connectionResult.counts?.requests || "Not found"}
+                      {!result.connectionResult.counts?.requests && (
+                        <span className="block text-xs text-yellow-600 mt-1">
+                          Check the Item Requests section below for details
+                        </span>
+                      )}
+                    </div>
                   </div>
                 </div>
               )}

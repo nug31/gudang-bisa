@@ -27,6 +27,7 @@ import { LowStockItems } from "./pages/LowStockItems";
 import { CategoryView } from "./pages/CategoryView";
 import DatabaseTest from "./pages/DatabaseTest";
 import TestRequestPage from "./pages/TestRequestPage";
+import ItemRequestsTest from "./pages/ItemRequestsTest";
 
 // PrivateRoute component to protect routes
 const PrivateRoute = ({
@@ -269,6 +270,26 @@ function App() {
                       element={
                         <PrivateRoute>
                           <TestRequestPage />
+                        </PrivateRoute>
+                      }
+                    />
+
+                    <Route
+                      path="/item-requests-test"
+                      element={
+                        <PrivateRoute>
+                          {({ user }) => {
+                            // Only allow admin and manager to access this test
+                            const userRole = user?.role?.toLowerCase() || "";
+                            const hasAccess =
+                              userRole === "admin" || userRole === "manager";
+
+                            return hasAccess ? (
+                              <ItemRequestsTest />
+                            ) : (
+                              <Navigate to="/" />
+                            );
+                          }}
                         </PrivateRoute>
                       }
                     />

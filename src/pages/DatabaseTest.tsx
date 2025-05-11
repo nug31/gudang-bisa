@@ -4,7 +4,7 @@ import { ItemRequestsCheck } from "../components/ItemRequestsCheck";
 import { PageHeader } from "../components/PageHeader";
 import { Button } from "../components/ui/Button";
 import { Link } from "react-router-dom";
-import { ArrowLeft } from "lucide-react";
+import { ArrowLeft, Database } from "lucide-react";
 
 const DatabaseTest: React.FC = () => {
   return (
@@ -62,6 +62,20 @@ const DatabaseTest: React.FC = () => {
               password in the connection string.
             </li>
           </ul>
+
+          <div className="mt-4 pt-4 border-t border-blue-200">
+            <Link
+              to="/item-requests-test"
+              className="inline-flex items-center px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors"
+            >
+              <Database className="h-4 w-4 mr-2" />
+              Direct Item Requests Test
+            </Link>
+            <p className="mt-2 text-sm text-blue-700">
+              If you're having issues with item requests, try the direct test
+              page for more detailed diagnostics.
+            </p>
+          </div>
         </div>
       </div>
     </>

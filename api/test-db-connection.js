@@ -1,8 +1,9 @@
 // Vercel API route for testing database connection
-const { Pool } = require("pg");
+import { Pool } from "pg";
 
 // Get connection string from environment variable
-const connectionString = process.env.NEON_CONNECTION_STRING || 
+const connectionString =
+  process.env.NEON_CONNECTION_STRING ||
   "postgresql://neondb_owner:npg_zJqB6a8IPdEH@ep-damp-sky-a13sblwc-pooler.ap-southeast-1.aws.neon.tech/neondb?sslmode=require";
 
 // Create a connection pool with optimized settings for serverless
@@ -43,12 +44,16 @@ async function testConnection() {
     let requestsCount = 0;
 
     if (tables.includes("inventory_items")) {
-      const inventoryResult = await client.query("SELECT COUNT(*) FROM inventory_items");
+      const inventoryResult = await client.query(
+        "SELECT COUNT(*) FROM inventory_items"
+      );
       inventoryCount = parseInt(inventoryResult.rows[0].count, 10);
     }
 
     if (tables.includes("categories")) {
-      const categoriesResult = await client.query("SELECT COUNT(*) FROM categories");
+      const categoriesResult = await client.query(
+        "SELECT COUNT(*) FROM categories"
+      );
       categoriesCount = parseInt(categoriesResult.rows[0].count, 10);
     }
 
@@ -58,9 +63,11 @@ async function testConnection() {
     }
 
     if (tables.includes("item_requests")) {
-      const requestsResult = await client.query("SELECT COUNT(*) FROM item_requests");
+      const requestsResult = await client.query(
+        "SELECT COUNT(*) FROM item_requests"
+      );
       requestsCount = parseInt(requestsResult.rows[0].count, 10);
-      
+
       // Get status counts
       const statusResult = await client.query(
         "SELECT status, COUNT(*) FROM item_requests GROUP BY status"
@@ -104,25 +111,29 @@ export default async function handler(req, res) {
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Headers", "Content-Type");
   res.setHeader("Access-Control-Allow-Methods", "GET, OPTIONS");
-  
+
   // Handle preflight OPTIONS request
   if (req.method === "OPTIONS") {
     return res.status(200).end();
   }
-  
+
   try {
     // Test the connection
     const connectionResult = await testConnection();
-    
+
     // Check connection string info
     const connectionStringInfo = {
       available: !!connectionString,
       length: connectionString ? connectionString.length : 0,
-      containsNeon: connectionString ? connectionString.includes("neon") : false,
-      containsPostgresql: connectionString ? connectionString.includes("postgresql") : false,
+      containsNeon: connectionString
+        ? connectionString.includes("neon")
+        : false,
+      containsPostgresql: connectionString
+        ? connectionString.includes("postgresql")
+        : false,
       envVarSet: !!process.env.NEON_CONNECTION_STRING,
     };
-    
+
     // Return the results
     return res.status(200).json({
       timestamp: new Date().toISOString(),
@@ -135,7 +146,7 @@ export default async function handler(req, res) {
     });
   } catch (error) {
     console.error("Error testing database connection:", error);
-    
+
     return res.status(500).json({
       message: "Error testing database connection",
       error: error.message,

@@ -35,8 +35,9 @@ exports.handler = async (event, context) => {
   // Set CORS headers
   const headers = {
     "Access-Control-Allow-Origin": "*",
-    "Access-Control-Allow-Headers": "Content-Type",
-    "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+    "Access-Control-Allow-Headers": "Content-Type, Authorization",
+    "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
+    "Content-Type": "application/json",
   };
 
   // Handle preflight OPTIONS request
@@ -44,17 +45,20 @@ exports.handler = async (event, context) => {
     return {
       statusCode: 200,
       headers,
-      body: "",
+      body: JSON.stringify({ message: "Preflight call successful" }),
     };
   }
 
-  // Only allow POST requests
-  if (event.httpMethod !== "POST") {
-    return {
-      statusCode: 405,
-      headers,
-      body: JSON.stringify({ message: "Method not allowed" }),
-    };
+  // Allow both POST and GET requests
+  if (event.httpMethod !== "POST" && event.httpMethod !== "GET") {
+    console.log(
+      `Received ${event.httpMethod} request, but only POST and GET are supported`
+    );
+    console.log(
+      `Converting ${event.httpMethod} to POST for backward compatibility`
+    );
+    // Instead of rejecting, we'll treat all methods as POST for backward compatibility
+    // This ensures our function works with both old and new API calls
   }
 
   // Parse the request body

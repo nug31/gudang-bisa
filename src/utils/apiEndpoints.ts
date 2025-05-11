@@ -7,7 +7,7 @@
  * @returns boolean indicating if running on Vercel
  */
 export const isRunningOnVercel = (): boolean => {
-  return window.location.hostname.includes('vercel.app');
+  return window.location.hostname.includes("vercel.app");
 };
 
 /**
@@ -15,7 +15,7 @@ export const isRunningOnVercel = (): boolean => {
  * @returns boolean indicating if running on Netlify
  */
 export const isRunningOnNetlify = (): boolean => {
-  return window.location.hostname.includes('netlify.app');
+  return window.location.hostname.includes("netlify.app");
 };
 
 /**
@@ -26,7 +26,7 @@ export const isProduction = (): boolean => {
   return (
     isRunningOnVercel() ||
     isRunningOnNetlify() ||
-    window.location.hostname.includes('gudangmitra')
+    window.location.hostname.includes("gudangmitra")
   );
 };
 
@@ -36,16 +36,16 @@ export const isProduction = (): boolean => {
  * @returns The full API endpoint URL
  */
 export const getApiEndpoint = (endpoint: string): string => {
+  // If running on Netlify, use Netlify functions (prioritize Netlify)
+  if (isRunningOnNetlify()) {
+    return `/.netlify/functions/neon-${endpoint}`;
+  }
+
   // If running on Vercel, use Vercel API routes
   if (isRunningOnVercel()) {
     return `/api/${endpoint}`;
   }
-  
-  // If running on Netlify, use Netlify functions
-  if (isRunningOnNetlify()) {
-    return `/.netlify/functions/neon-${endpoint}`;
-  }
-  
+
   // If running locally, try the local server first
   return `/db/${endpoint}`;
 };
@@ -56,16 +56,21 @@ export const getApiEndpoint = (endpoint: string): string => {
  * @returns The full API endpoint URL for direct database access
  */
 export const getDirectDbEndpoint = (endpoint: string): string => {
+  // If running on Netlify, use Netlify functions (prioritize Netlify)
+  if (isRunningOnNetlify()) {
+    return `/.netlify/functions/neon-${endpoint}`;
+  }
+
   // If running on Vercel, use Vercel API routes
   if (isRunningOnVercel()) {
     return `/api/${endpoint}`;
   }
-  
-  // If running on Netlify or in production, use Netlify functions
+
+  // If running in other production environment, use Netlify functions as fallback
   if (isProduction()) {
     return `/.netlify/functions/neon-${endpoint}`;
   }
-  
+
   // If running locally, use the local server
   return `/db/${endpoint}`;
 };

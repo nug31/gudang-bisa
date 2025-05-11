@@ -325,14 +325,14 @@ export const RequestForm: React.FC<RequestFormProps> = ({
           console.error("Error fetching from /neon/inventory:", neonError);
         }
 
-        // If all endpoints fail, use mock data
+        // If all endpoints fail, use mock data with valid UUIDs
         console.log("All endpoints failed, using mock inventory data");
         const mockData = [
           {
-            id: "1",
+            id: "00000000-0000-0000-0000-000000000001",
             name: "Ballpoint Pen",
             description: "Blue ballpoint pen",
-            categoryId: "1",
+            categoryId: "00000000-0000-0000-0000-000000000101",
             categoryName: "Office",
             sku: "PEN-001",
             quantityAvailable: 100,
@@ -343,10 +343,10 @@ export const RequestForm: React.FC<RequestFormProps> = ({
             createdAt: "2023-01-01T00:00:00Z",
           },
           {
-            id: "2",
+            id: "00000000-0000-0000-0000-000000000002",
             name: "Notebook",
             description: "A5 lined notebook",
-            categoryId: "1",
+            categoryId: "00000000-0000-0000-0000-000000000101",
             categoryName: "Office",
             sku: "NB-001",
             quantityAvailable: 50,
@@ -357,10 +357,10 @@ export const RequestForm: React.FC<RequestFormProps> = ({
             createdAt: "2023-01-01T00:00:00Z",
           },
           {
-            id: "3",
+            id: "00000000-0000-0000-0000-000000000003",
             name: "Cleaning Spray",
             description: "All-purpose cleaning spray",
-            categoryId: "2",
+            categoryId: "00000000-0000-0000-0000-000000000102",
             categoryName: "Cleaning",
             sku: "CL-001",
             quantityAvailable: 30,
@@ -371,10 +371,10 @@ export const RequestForm: React.FC<RequestFormProps> = ({
             createdAt: "2023-01-01T00:00:00Z",
           },
           {
-            id: "4",
+            id: "00000000-0000-0000-0000-000000000004",
             name: "Screwdriver Set",
             description: "Set of 6 screwdrivers",
-            categoryId: "3",
+            categoryId: "00000000-0000-0000-0000-000000000103",
             categoryName: "Hardware",
             sku: "HW-001",
             quantityAvailable: 20,
@@ -385,10 +385,10 @@ export const RequestForm: React.FC<RequestFormProps> = ({
             createdAt: "2023-01-01T00:00:00Z",
           },
           {
-            id: "5",
+            id: "00000000-0000-0000-0000-000000000005",
             name: "First Aid Kit",
             description: "Basic first aid kit",
-            categoryId: "4",
+            categoryId: "00000000-0000-0000-0000-000000000104",
             categoryName: "Other",
             sku: "OT-001",
             quantityAvailable: 10,
@@ -408,22 +408,22 @@ export const RequestForm: React.FC<RequestFormProps> = ({
       } catch (error) {
         console.error("Error in fetchInventoryItems:", error);
 
-        // Last resort mock data
+        // Last resort mock data with valid UUIDs
         const fallbackMockData = [
           {
-            id: "1",
+            id: "00000000-0000-0000-0000-000000000001",
             name: "Office Supplies",
             description: "General office supplies",
-            categoryId: "1",
+            categoryId: "00000000-0000-0000-0000-000000000101",
             categoryName: "Office",
             quantityAvailable: 100,
             quantityReserved: 0,
           },
           {
-            id: "2",
+            id: "00000000-0000-0000-0000-000000000002",
             name: "Cleaning Supplies",
             description: "General cleaning supplies",
-            categoryId: "2",
+            categoryId: "00000000-0000-0000-0000-000000000102",
             categoryName: "Cleaning",
             quantityAvailable: 50,
             quantityReserved: 0,
@@ -745,6 +745,22 @@ export const RequestForm: React.FC<RequestFormProps> = ({
             (inv) => inv.id === item.id
           );
 
+          // Validate item ID to ensure it's a valid UUID
+          const isValidUuid = (id) => {
+            const uuidRegex =
+              /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+            return uuidRegex.test(id);
+          };
+
+          // Check if the item ID is a valid UUID
+          const validItemId = isValidUuid(item.id) ? item.id : null;
+
+          if (!validItemId) {
+            console.warn(
+              `Item ID "${item.id}" is not a valid UUID. This may cause issues with the database.`
+            );
+          }
+
           // Prepare the request data with all necessary fields
           const requestData = {
             ...initialData,
@@ -755,10 +771,10 @@ export const RequestForm: React.FC<RequestFormProps> = ({
             fulfillmentDate: formData.dueDate || undefined,
             status: status as ItemRequest["status"],
             userId: user.id,
-            // These fields are required by the Netlify function
-            itemId: item.id,
+            // These fields are required by the Netlify function - use validated UUID
+            itemId: validItemId,
             // Keep the additional fields for compatibility with other parts of the app
-            inventoryItemId: item.id,
+            inventoryItemId: validItemId,
             inventoryItemName: item.name,
             reason: formData.description, // Pass the description as the reason
             // Use the category from the inventory item or a default category
@@ -994,17 +1010,19 @@ export const RequestForm: React.FC<RequestFormProps> = ({
     <form
       id="request-form"
       onSubmit={(e) => handleSubmit(e, false)}
-      className="bg-white rounded-lg shadow-card p-6 max-w-3xl mx-auto animate-fade-in"
+      className="bg-white rounded-lg shadow-card p-4 sm:p-6 w-full max-w-3xl mx-auto animate-fade-in"
     >
-      <div className="mb-6">
-        <h2 className="text-2xl font-semibold text-neutral-900 flex items-center">
-          <Boxes className="mr-2 h-6 w-6 text-primary-500" />
+      <div className="mb-4 sm:mb-6">
+        <h2 className="text-xl sm:text-2xl font-semibold text-neutral-900 flex items-center">
+          <Boxes className="mr-2 h-5 w-5 sm:h-6 sm:w-6 text-primary-500" />
           {isEdit ? "Edit Order" : "New Inventory Order"}
         </h2>
       </div>
 
-      <div className="mb-6">
-        <h3 className="text-xl font-medium text-neutral-900">Order Details</h3>
+      <div className="mb-4 sm:mb-6">
+        <h3 className="text-lg sm:text-xl font-medium text-neutral-900">
+          Order Details
+        </h3>
       </div>
 
       {message && (
@@ -1075,23 +1093,29 @@ export const RequestForm: React.FC<RequestFormProps> = ({
           required
         />
 
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          <Select
-            label="Priority Level *"
-            name="priority"
-            value={formData.priority}
-            onChange={handlePriorityChange}
-            options={priorityOptions}
-          />
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 sm:gap-6 form-grid">
+          <div className="w-full">
+            <Select
+              label="Priority Level *"
+              name="priority"
+              value={formData.priority}
+              onChange={handlePriorityChange}
+              options={priorityOptions}
+              className="form-control"
+            />
+          </div>
 
-          <Input
-            label="Due Date (Optional)"
-            name="dueDate"
-            type="date"
-            value={formData.dueDate}
-            onChange={handleInputChange}
-            leftIcon={<Calendar className="h-4 w-4" />}
-          />
+          <div className="w-full">
+            <Input
+              label="Due Date (Optional)"
+              name="dueDate"
+              type="date"
+              value={formData.dueDate}
+              onChange={handleInputChange}
+              leftIcon={<Calendar className="h-4 w-4" />}
+              className="form-control"
+            />
+          </div>
         </div>
 
         <div>
@@ -1101,7 +1125,7 @@ export const RequestForm: React.FC<RequestFormProps> = ({
             </label>
             <Button
               type="button"
-              variant="outline"
+              className="bg-white border border-neutral-300 text-neutral-700 hover:bg-neutral-50"
               size="sm"
               leftIcon={<Plus className="h-4 w-4" />}
               onClick={handleAddItem}
@@ -1191,10 +1215,9 @@ export const RequestForm: React.FC<RequestFormProps> = ({
                     </div>
                     <Button
                       type="button"
-                      variant="ghost"
+                      className="bg-transparent text-neutral-500 hover:text-red-500 hover:bg-neutral-100"
                       size="sm"
                       onClick={() => handleRemoveItem(item.id)}
-                      className="text-neutral-500 hover:text-red-500"
                     >
                       <Trash2 className="h-4 w-4" />
                     </Button>
@@ -1226,8 +1249,12 @@ export const RequestForm: React.FC<RequestFormProps> = ({
         )}
       </div>
 
-      <div className="mt-8 flex items-center justify-end space-x-4">
-        <Button type="button" variant="outline" onClick={() => navigate(-1)}>
+      <div className="mt-6 sm:mt-8 flex flex-col sm:flex-row items-center justify-end sm:space-x-4 space-y-3 sm:space-y-0 form-buttons">
+        <Button
+          type="button"
+          className="bg-white border border-neutral-300 text-neutral-700 hover:bg-neutral-50 w-full sm:w-auto"
+          onClick={() => navigate(-1)}
+        >
           Cancel
         </Button>
 
@@ -1240,6 +1267,7 @@ export const RequestForm: React.FC<RequestFormProps> = ({
             !!errors.quantity ||
             requestItems.some((item) => item.quantity > item.available)
           }
+          className="w-full sm:w-auto"
         >
           Submit Request
         </Button>

@@ -207,6 +207,9 @@ export const DatabaseConnectionTest: React.FC = () => {
 
                     <div>Users:</div>
                     <div>{result.connectionResult.counts?.users || 0}</div>
+
+                    <div>Item Requests:</div>
+                    <div>{result.connectionResult.counts?.requests || 0}</div>
                   </div>
                 </div>
               )}

@@ -1,5 +1,6 @@
 import React from "react";
 import { DatabaseConnectionTest } from "../components/DatabaseConnectionTest";
+import { ItemRequestsCheck } from "../components/ItemRequestsCheck";
 import { PageHeader } from "../components/PageHeader";
 import { Button } from "../components/ui/Button";
 import { Link } from "react-router-dom";
@@ -29,6 +30,10 @@ const DatabaseTest: React.FC = () => {
 
         <div className="mt-6">
           <DatabaseConnectionTest />
+        </div>
+
+        <div className="mt-6">
+          <ItemRequestsCheck />
         </div>
 
         <div className="mt-8 p-4 bg-blue-50 border border-blue-200 rounded-lg">

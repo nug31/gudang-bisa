@@ -306,6 +306,22 @@ exports.handler = async (event, context) => {
           console.log(
             `Returning ${requestsArray.length} requests in the expected format`
           );
+
+          // Log more detailed information about the requests
+          if (requestsArray.length > 0) {
+            console.log("First request:", JSON.stringify(requestsArray[0]));
+            console.log(
+              "Request statuses:",
+              requestsArray.map((r) => r.status)
+            );
+            console.log(
+              "Request IDs:",
+              requestsArray.map((r) => r.id)
+            );
+          } else {
+            console.warn("No requests found in the database to return");
+          }
+
           console.log("Response format:", {
             requests: "Array of requests",
             totalRequests: requestsArray.length,

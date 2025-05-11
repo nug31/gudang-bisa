@@ -12,23 +12,18 @@ import {
   Users,
   ClipboardList,
   AlertTriangle,
-  Package,
-  Warehouse,
   Database,
 } from "lucide-react";
 import { ItemRequest } from "../types";
 import { UserManagement } from "../components/users/UserManagement";
 import { ErrorDisplay } from "../components/ui/ErrorDisplay";
-import { InventoryManagement } from "../components/admin/InventoryManagement";
 
 export const Manager: React.FC = () => {
   const { requests, loading } = useRequests();
 
-  const [activeTab, setActiveTab] = useState<
-    "requests" | "users" | "inventory"
-  >("requests");
+  const [activeTab, setActiveTab] = useState<"requests" | "users">("requests");
   const [searchQuery, setSearchQuery] = useState("");
-  const [statusFilter, setStatusFilter] = useState("pending");
+  const [statusFilter, setStatusFilter] = useState("all"); // Changed from "pending" to "all" to show all requests
   const [priorityFilter, setPriorityFilter] = useState("all");
   const [sortOrder, setSortOrder] = useState("newest");
   const [error, setError] = useState<string | null>("Failed to fetch users");
@@ -38,26 +33,47 @@ export const Manager: React.FC = () => {
     setError(null);
   }, [activeTab]);
 
+  // Log the requests for debugging
+  console.log(`Manager: Total requests from context: ${requests.length}`);
+  if (requests.length > 0) {
+    console.log("Manager: First request:", requests[0]);
+    console.log(
+      "Manager: Request statuses:",
+      requests.map((r) => r.status)
+    );
+  }
+
   // Filter and sort requests
   const filteredRequests = requests
     .filter((request) => {
       // Status filter
       if (statusFilter !== "all" && request.status !== statusFilter) {
+        console.log(
+          `Manager: Filtering out request ${request.id} with status ${request.status} (filter: ${statusFilter})`
+        );
         return false;
       }
 
       // Priority filter
       if (priorityFilter !== "all" && request.priority !== priorityFilter) {
+        console.log(
+          `Manager: Filtering out request ${request.id} with priority ${request.priority} (filter: ${priorityFilter})`
+        );
         return false;
       }
 
       // Search query
       if (searchQuery) {
         const query = searchQuery.toLowerCase();
-        return (
+        const matches =
           request.title.toLowerCase().includes(query) ||
-          request.description.toLowerCase().includes(query)
-        );
+          request.description.toLowerCase().includes(query);
+        if (!matches) {
+          console.log(
+            `Manager: Filtering out request ${request.id} that doesn't match search query "${searchQuery}"`
+          );
+        }
+        return matches;
       }
 
       return true;
@@ -74,6 +90,14 @@ export const Manager: React.FC = () => {
         );
       }
     });
+
+  // Log the filtered results
+  console.log(
+    `Manager: Filtered requests count: ${filteredRequests.length} (from total: ${requests.length})`
+  );
+  console.log(
+    `Manager: Current filters - status: ${statusFilter}, priority: ${priorityFilter}, search: "${searchQuery}"`
+  );
 
   if (loading) {
     return (
@@ -102,13 +126,6 @@ export const Manager: React.FC = () => {
               leftIcon={<ClipboardList className="h-4 w-4" />}
             >
               Requests
-            </Button>
-            <Button
-              variant={activeTab === "inventory" ? "primary" : "outline"}
-              onClick={() => setActiveTab("inventory")}
-              leftIcon={<Package className="h-4 w-4" />}
-            >
-              Inventory
             </Button>
             <Button
               variant={activeTab === "users" ? "primary" : "outline"}
@@ -195,9 +212,6 @@ export const Manager: React.FC = () => {
               )}
             </div>
           </>
-        ) : activeTab === "inventory" ? (
-          // Inventory Management Tab
-          <InventoryManagement />
         ) : (
           // User Management Tab
           <UserManagement />

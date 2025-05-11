@@ -133,6 +133,24 @@ export function RequestProvider({ children }: { children: React.ReactNode }) {
 
       console.log("Received data from server:", data);
 
+      // Log detailed information about the received data
+      console.log(
+        `RequestContext: Received ${data.length} requests from server`
+      );
+      if (data.length > 0) {
+        console.log("RequestContext: First request:", data[0]);
+        console.log(
+          "RequestContext: Request statuses:",
+          data.map((r) => r.status)
+        );
+        console.log(
+          "RequestContext: Request IDs:",
+          data.map((r) => r.id)
+        );
+      } else {
+        console.warn("RequestContext: No requests received from server");
+      }
+
       // Update the state with the new data
       dispatch({ type: "INITIALIZE", payload: data });
 
@@ -141,7 +159,9 @@ export function RequestProvider({ children }: { children: React.ReactNode }) {
       setLastRefreshed(now);
 
       console.log(
-        `Refreshed ${data.length} requests at ${now.toLocaleTimeString()}`
+        `RequestContext: Refreshed ${
+          data.length
+        } requests at ${now.toLocaleTimeString()}`
       );
 
       return data;
@@ -189,9 +209,11 @@ export function RequestProvider({ children }: { children: React.ReactNode }) {
     };
   }, []);
 
-  // Filter requests for the current user
+  // Filter requests based on user role
   const userRequests = user
-    ? requests.filter((request) => request.userId === user.id)
+    ? user.role === "admin" || user.role === "manager"
+      ? requests // Admin and manager can see all requests
+      : requests.filter((request) => request.userId === user.id) // Regular users only see their own
     : [];
 
   const createRequest = async (

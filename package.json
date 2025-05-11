@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
+    "vercel-build": "vite build",
     "lint": "eslint .",
     "preview": "vite preview",
     "server": "node server.js",
@@ -34,6 +35,7 @@
     "add:neon-sample-categories": "node scripts/add-neon-sample-categories.js",
     "add:sample-inventory": "node scripts/add-sample-inventory.js",
     "add:neon-sample-inventory": "node scripts/add-neon-sample-inventory.js",
+    "add:neon-sample-requests": "node scripts/add-neon-sample-requests.js",
     "add:sample-requests": "node scripts/add-sample-requests.js",
     "add:all-sample-data": "node scripts/add-all-sample-data.js",
     "add:neon-all-sample-data": "node scripts/add-neon-all-sample-data.js",

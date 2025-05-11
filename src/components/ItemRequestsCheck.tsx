@@ -22,7 +22,7 @@ export const ItemRequestsCheck: React.FC = () => {
 
       // Add a timestamp to prevent caching
       const timestamp = new Date().getTime();
-      const url = `/.netlify/functions/check-item-requests?t=${timestamp}`;
+      const url = `/api/item-requests-direct?t=${timestamp}`;
       console.log("Fetching from URL:", url);
 
       // Set a timeout for the fetch request

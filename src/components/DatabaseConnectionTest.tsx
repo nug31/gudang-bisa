@@ -60,9 +60,7 @@ export const DatabaseConnectionTest: React.FC = () => {
 
       // Add a timestamp to prevent caching
       const timestamp = new Date().getTime();
-      const response = await fetch(
-        `/.netlify/functions/test-db-connection?t=${timestamp}`
-      );
+      const response = await fetch(`/api/test-db-connection?t=${timestamp}`);
 
       if (!response.ok) {
         throw new Error(

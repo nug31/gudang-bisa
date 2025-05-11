@@ -1,13 +1,26 @@
-import React, { useState, useEffect } from 'react';
-import { Box, Button, Container, FormControl, InputLabel, MenuItem, Select, Typography, Paper, Alert, CircularProgress, Divider } from '@mui/material';
-import { useAuth } from '../contexts/AuthContext';
-import { inventoryApi, requestDbApi } from '../services/api';
-import { InventoryItem, ItemRequest } from '../types';
+import React, { useState, useEffect } from "react";
+import {
+  Box,
+  Button,
+  Container,
+  FormControl,
+  InputLabel,
+  MenuItem,
+  Select,
+  Typography,
+  Paper,
+  Alert,
+  CircularProgress,
+  Divider,
+} from "@mui/material";
+import { useAuth } from "../contexts/AuthContext";
+import { inventoryApi, requestDbApi } from "../services/api";
+import { InventoryItem, ItemRequest } from "../types";
 
 const TestRequestPage: React.FC = () => {
   const { user } = useAuth();
   const [items, setItems] = useState<InventoryItem[]>([]);
-  const [selectedItemId, setSelectedItemId] = useState<string>('');
+  const [selectedItemId, setSelectedItemId] = useState<string>("");
   const [loading, setLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
@@ -24,8 +37,8 @@ const TestRequestPage: React.FC = () => {
           setSelectedItemId(fetchedItems[0].id);
         }
       } catch (error) {
-        console.error('Error fetching inventory items:', error);
-        setError('Failed to load inventory items. Please try again later.');
+        console.error("Error fetching inventory items:", error);
+        setError("Failed to load inventory items. Please try again later.");
       }
     };
 
@@ -35,13 +48,13 @@ const TestRequestPage: React.FC = () => {
   // Fetch recent requests
   const fetchRecentRequests = async () => {
     if (!user) return;
-    
+
     setLoadingRequests(true);
     try {
       const requests = await requestDbApi.getAll(user.id);
       setRecentRequests(requests);
     } catch (error) {
-      console.error('Error fetching recent requests:', error);
+      console.error("Error fetching recent requests:", error);
     } finally {
       setLoadingRequests(false);
     }
@@ -59,12 +72,12 @@ const TestRequestPage: React.FC = () => {
 
   const handleCreateTestRequest = async () => {
     if (!user) {
-      setError('You must be logged in to create a request');
+      setError("You must be logged in to create a request");
       return;
     }
 
     if (!selectedItemId) {
-      setError('Please select an item');
+      setError("Please select an item");
       return;
     }
 
@@ -73,9 +86,27 @@ const TestRequestPage: React.FC = () => {
     setSuccess(null);
 
     try {
-      console.log('Creating test request with item ID:', selectedItemId);
-      
-      // Create a simple test request
+      console.log("Creating test request with item ID:", selectedItemId);
+
+      // Validate UUID format
+      const isValidUuid = (id: string | null | undefined): boolean => {
+        if (!id) return false;
+        const uuidRegex =
+          /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+        return uuidRegex.test(id);
+      };
+
+      // Validate the selected item ID
+      if (!isValidUuid(selectedItemId)) {
+        console.error(
+          `Selected item ID "${selectedItemId}" is not a valid UUID`
+        );
+        setError(`Invalid item ID format. Please select a different item.`);
+        setLoading(false);
+        return;
+      }
+
+      // Create a simple test request with validated UUID
       const newRequest = {
         userId: user.id,
         itemId: selectedItemId,
@@ -84,23 +115,23 @@ const TestRequestPage: React.FC = () => {
         title: `Test Request ${new Date().toLocaleTimeString()}`,
         description: `This is a test request created at ${new Date().toLocaleString()}`,
         reason: `Testing the request functionality at ${new Date().toLocaleString()}`,
-        priority: 'medium',
-        status: 'pending',
+        priority: "medium",
+        status: "pending",
       };
 
-      console.log('Test request data:', newRequest);
-      
+      console.log("Test request data:", newRequest);
+
       // Create the request
       const createdRequest = await requestDbApi.create(newRequest);
-      
-      console.log('Test request created successfully:', createdRequest);
+
+      console.log("Test request created successfully:", createdRequest);
       setSuccess(`Request created successfully with ID: ${createdRequest.id}`);
-      
+
       // Refresh the recent requests list
       fetchRecentRequests();
     } catch (error: any) {
-      console.error('Error creating test request:', error);
-      setError(`Failed to create request: ${error.message || 'Unknown error'}`);
+      console.error("Error creating test request:", error);
+      setError(`Failed to create request: ${error.message || "Unknown error"}`);
     } finally {
       setLoading(false);
     }
@@ -113,7 +144,8 @@ const TestRequestPage: React.FC = () => {
           Test Request Creation
         </Typography>
         <Typography variant="body1" paragraph>
-          This page allows you to test the request creation functionality with minimal input.
+          This page allows you to test the request creation functionality with
+          minimal input.
         </Typography>
 
         {error && (
@@ -153,7 +185,11 @@ const TestRequestPage: React.FC = () => {
           fullWidth
           sx={{ py: 1.5 }}
         >
-          {loading ? <CircularProgress size={24} color="inherit" /> : 'Create Test Request'}
+          {loading ? (
+            <CircularProgress size={24} color="inherit" />
+          ) : (
+            "Create Test Request"
+          )}
         </Button>
       </Paper>
 
@@ -163,14 +199,17 @@ const TestRequestPage: React.FC = () => {
         <Typography variant="h5" gutterBottom>
           Recent Requests
         </Typography>
-        
+
         {loadingRequests ? (
-          <Box sx={{ display: 'flex', justifyContent: 'center', p: 3 }}>
+          <Box sx={{ display: "flex", justifyContent: "center", p: 3 }}>
             <CircularProgress />
           </Box>
         ) : recentRequests.length > 0 ? (
           recentRequests.map((request) => (
-            <Paper key={request.id} sx={{ p: 2, mb: 2, bgcolor: 'background.default' }}>
+            <Paper
+              key={request.id}
+              sx={{ p: 2, mb: 2, bgcolor: "background.default" }}
+            >
               <Typography variant="h6">{request.title}</Typography>
               <Typography variant="body2" color="text.secondary">
                 ID: {request.id}

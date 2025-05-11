@@ -147,6 +147,42 @@ export const requestDbApi = {
         `Fetching all requests with timestamp: ${timestamp || "none"}`
       );
 
+      // Try the local server endpoint first
+      try {
+        console.log("Trying local server endpoint first...");
+        const localResponse = await fetch("/db/requests", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "Cache-Control": "no-cache, no-store, must-revalidate",
+            Pragma: "no-cache",
+            Expires: "0",
+          },
+          body: JSON.stringify({
+            action: "getAll",
+            timestamp: timestamp || new Date().getTime(),
+          }),
+        });
+
+        if (localResponse.ok) {
+          console.log("Local server endpoint successful");
+          const responseData = await handleResponse(localResponse);
+          const requests = responseData.requests || responseData;
+          console.log(`Received ${requests.length} requests from local server`);
+          return requests;
+        } else {
+          console.log(
+            "Local server endpoint failed, trying Netlify function..."
+          );
+        }
+      } catch (localError) {
+        console.log(
+          "Local server endpoint error, trying Netlify function...",
+          localError
+        );
+      }
+
+      // If local endpoint fails, try the Netlify function
       const response = await fetch("/.netlify/functions/neon-requests", {
         method: "POST",
         headers: {
@@ -161,14 +197,14 @@ export const requestDbApi = {
         }),
       });
 
-      console.log(`Request response status: ${response.status}`);
+      console.log(`Netlify function response status: ${response.status}`);
 
       const responseData = await handleResponse(response);
 
       // Handle both formats: array or {requests: array}
       const requests = responseData.requests || responseData;
 
-      console.log(`Received ${requests.length} requests from server`);
+      console.log(`Received ${requests.length} requests from Netlify function`);
       console.log("Response format:", responseData);
 
       return requests;
@@ -181,6 +217,36 @@ export const requestDbApi = {
   // Get a request by ID
   getById: async (id: string): Promise<ItemRequest> => {
     try {
+      // Try the local server endpoint first
+      try {
+        console.log(`Trying to fetch request ${id} from local server...`);
+        const localResponse = await fetch("/db/requests", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            action: "getById",
+            id,
+          }),
+        });
+
+        if (localResponse.ok) {
+          console.log("Local server endpoint successful for getById");
+          return handleResponse(localResponse);
+        } else {
+          console.log(
+            "Local server endpoint failed for getById, trying Netlify function..."
+          );
+        }
+      } catch (localError) {
+        console.log(
+          "Local server endpoint error for getById, trying Netlify function...",
+          localError
+        );
+      }
+
+      // If local endpoint fails, try the Netlify function
       const response = await fetch("/.netlify/functions/neon-requests", {
         method: "POST",
         headers: {
@@ -235,16 +301,58 @@ export const requestDbApi = {
           throw new Error("Item ID is required for creating a request");
         }
 
+        // Validate UUID format for itemId and inventoryItemId
+        const isValidUuid = (id: string | null | undefined): boolean => {
+          if (!id) return false;
+          const uuidRegex =
+            /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+          return uuidRegex.test(id);
+        };
+
+        // Get valid itemId or null
+        const rawItemId = newRequest.itemId || newRequest.inventoryItemId;
+        const validItemId = isValidUuid(rawItemId) ? rawItemId : null;
+
+        if (!validItemId) {
+          console.warn(
+            `Invalid UUID format for itemId: "${rawItemId}". Setting to null.`
+          );
+        }
+
+        // Get valid categoryId or null
+        const rawCategoryId = newRequest.categoryId || newRequest.category_id;
+        const validCategoryId = isValidUuid(rawCategoryId)
+          ? rawCategoryId
+          : null;
+
+        if (rawCategoryId && !validCategoryId) {
+          console.warn(
+            `Invalid UUID format for categoryId: "${rawCategoryId}". Setting to null.`
+          );
+        }
+
         // Log the request body for debugging
         const requestBody = {
           action: "create",
           // Include the required fields directly at the top level for the Netlify function
           userId: newRequest.userId,
-          itemId: newRequest.itemId || newRequest.inventoryItemId,
+          itemId: validItemId, // Use validated UUID
           quantity: newRequest.quantity || 1,
           reason: newRequest.reason || newRequest.description,
-          // Also include the full request object for compatibility
-          request: newRequest,
+          title: newRequest.title || `Request for Item`,
+          description:
+            newRequest.description || newRequest.reason || `Request for item`,
+          priority: newRequest.priority || "medium",
+          categoryId: validCategoryId, // Use validated UUID
+          status: newRequest.status || "pending",
+          // Also include the full request object for compatibility but with validated UUIDs
+          request: {
+            ...newRequest,
+            itemId: validItemId,
+            inventoryItemId: validItemId,
+            categoryId: validCategoryId,
+            category_id: validCategoryId,
+          },
           timestamp: Date.now(), // Add timestamp to prevent caching
         };
         console.log(
@@ -252,7 +360,7 @@ export const requestDbApi = {
           JSON.stringify(requestBody)
         );
 
-        console.log("Sending request to /.netlify/functions/neon-requests");
+        console.log("Sending request to server");
 
         // Add timeout to fetch request
         const controller = new AbortController();
@@ -260,19 +368,54 @@ export const requestDbApi = {
 
         let response;
         try {
-          response = await fetch("/.netlify/functions/neon-requests", {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              "Cache-Control": "no-cache, no-store, must-revalidate",
-              Pragma: "no-cache",
-              Expires: "0",
-            },
-            body: JSON.stringify(requestBody),
-            signal: controller.signal,
-            // Add credentials to ensure cookies are sent
-            credentials: "include",
-          });
+          // Try the local server endpoint first
+          try {
+            console.log("Trying local server endpoint for create...");
+            const localResponse = await fetch("/db/requests", {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+                "Cache-Control": "no-cache, no-store, must-revalidate",
+                Pragma: "no-cache",
+                Expires: "0",
+              },
+              body: JSON.stringify(requestBody),
+              signal: controller.signal,
+              credentials: "include",
+            });
+
+            if (localResponse.ok) {
+              console.log("Local server endpoint successful for create");
+              response = localResponse;
+              clearTimeout(timeoutId);
+            } else {
+              console.log(
+                "Local server endpoint failed for create, trying Netlify function..."
+              );
+            }
+          } catch (localError) {
+            console.log(
+              "Local server endpoint error for create, trying Netlify function...",
+              localError
+            );
+          }
+
+          // If local endpoint fails, try the Netlify function
+          if (!response || !response.ok) {
+            response = await fetch("/.netlify/functions/neon-requests", {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+                "Cache-Control": "no-cache, no-store, must-revalidate",
+                Pragma: "no-cache",
+                Expires: "0",
+              },
+              body: JSON.stringify(requestBody),
+              signal: controller.signal,
+              // Add credentials to ensure cookies are sent
+              credentials: "include",
+            });
+          }
 
           // Clear the timeout since the request completed
           clearTimeout(timeoutId);
@@ -446,92 +589,359 @@ export const requestDbApi = {
 
   // Update a request
   update: async (request: ItemRequest): Promise<ItemRequest> => {
-    try {
-      console.log("requestDbApi: Updating request:", request);
+    const maxRetries = 3;
+    let retryCount = 0;
+    let lastError: any = null;
+    let lastResponse: Response | null = null;
 
-      // Make sure user roles are preserved properly
-      let updatedRequest = {
-        ...request,
-        updatedAt: new Date().toISOString(),
-      };
+    console.log("=== REQUEST UPDATE STARTED ===");
+    console.log("Original request data:", request);
 
-      // Add debugging for user roles
-      if (updatedRequest.approvedBy) {
-        console.log("Approving with user ID:", updatedRequest.approvedBy);
-        // Get user from localStorage as backup
-        try {
-          const storedUser = localStorage.getItem("user");
-          if (storedUser) {
-            const parsedUser = JSON.parse(storedUser);
-            console.log("User from localStorage:", parsedUser);
-            console.log("User role from localStorage:", parsedUser.role);
-          }
-        } catch (e) {
-          console.error("Error getting user from localStorage:", e);
-        }
-      }
-
-      console.log(
-        "requestDbApi: Prepared request with updated timestamp:",
-        updatedRequest
-      );
-
-      // Add timeout to fetch request
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 15000); // 15 second timeout
-
-      let response;
+    while (retryCount <= maxRetries) {
       try {
-        response = await fetch("/.netlify/functions/neon-requests", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "Cache-Control": "no-cache, no-store, must-revalidate",
-            Pragma: "no-cache",
-            Expires: "0",
-          },
-          body: JSON.stringify({
-            action: "update",
-            request: updatedRequest,
-            timestamp: Date.now(), // Add timestamp to prevent caching
-          }),
-          signal: controller.signal,
-          // Add credentials to ensure cookies are sent
-          credentials: "include",
-        });
+        console.log(`Attempt ${retryCount + 1} to update request:`, request);
 
-        // Clear the timeout since the request completed
-        clearTimeout(timeoutId);
-      } catch (fetchError) {
-        // Clear the timeout to prevent memory leaks
-        clearTimeout(timeoutId);
+        // Make sure we have all required fields
+        if (!request.id) {
+          console.error("Missing id in request data");
+          throw new Error("Request ID is required for updating a request");
+        }
 
-        // Check if the error was due to timeout
-        if (fetchError.name === "AbortError") {
+        // Make sure user roles are preserved properly
+        let updatedRequest = {
+          ...request,
+          updatedAt: new Date().toISOString(),
+        };
+
+        // Add debugging for user roles
+        if (updatedRequest.approvedBy) {
+          console.log("Approving with user ID:", updatedRequest.approvedBy);
+          // Get user from localStorage as backup
+          try {
+            const storedUser = localStorage.getItem("user");
+            if (storedUser) {
+              const parsedUser = JSON.parse(storedUser);
+              console.log("User from localStorage:", parsedUser);
+              console.log("User role from localStorage:", parsedUser.role);
+            }
+          } catch (e) {
+            console.error("Error getting user from localStorage:", e);
+          }
+        }
+
+        console.log("Prepared request with updated timestamp:", updatedRequest);
+
+        // Validate UUID format for IDs
+        const isValidUuid = (id: string | null | undefined): boolean => {
+          if (!id) return false;
+          const uuidRegex =
+            /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+          return uuidRegex.test(id);
+        };
+
+        // Validate all UUID fields
+        const validInventoryItemId = isValidUuid(updatedRequest.inventoryItemId)
+          ? updatedRequest.inventoryItemId
+          : null;
+        const validItemId = isValidUuid(updatedRequest.itemId)
+          ? updatedRequest.itemId
+          : null;
+        const validCategoryId = isValidUuid(updatedRequest.categoryId)
+          ? updatedRequest.categoryId
+          : null;
+        const validApprovedBy = isValidUuid(updatedRequest.approvedBy)
+          ? updatedRequest.approvedBy
+          : null;
+        const validRejectedBy = isValidUuid(updatedRequest.rejectedBy)
+          ? updatedRequest.rejectedBy
+          : null;
+
+        // Create a sanitized version of the request with valid UUIDs
+        const sanitizedRequest = {
+          ...updatedRequest,
+          inventoryItemId: validInventoryItemId,
+          itemId: validItemId,
+          categoryId: validCategoryId,
+          category_id: validCategoryId,
+          approvedBy: validApprovedBy,
+          approved_by: validApprovedBy,
+          rejectedBy: validRejectedBy,
+          rejected_by: validRejectedBy,
+        };
+
+        // Log the request body for debugging
+        const requestBody = {
+          action: "update",
+          // Include the required fields directly at the top level for the Netlify function
+          id: updatedRequest.id,
+          status: updatedRequest.status,
+          // Also include the sanitized request object for compatibility
+          request: sanitizedRequest,
+          timestamp: Date.now(), // Add timestamp to prevent caching
+        };
+        console.log(
+          "Request body being sent to server:",
+          JSON.stringify(requestBody)
+        );
+
+        console.log("Sending update request to server");
+
+        // Add timeout to fetch request
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 15000); // 15 second timeout
+
+        let response;
+        try {
+          // Try the local server endpoint first
+          try {
+            console.log("Trying local server endpoint for update...");
+            const localResponse = await fetch("/db/requests", {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+                "Cache-Control": "no-cache, no-store, must-revalidate",
+                Pragma: "no-cache",
+                Expires: "0",
+              },
+              body: JSON.stringify(requestBody),
+              signal: controller.signal,
+              credentials: "include",
+            });
+
+            if (localResponse.ok) {
+              console.log("Local server endpoint successful for update");
+              response = localResponse;
+              clearTimeout(timeoutId);
+            } else {
+              console.log(
+                "Local server endpoint failed for update, trying Netlify function..."
+              );
+            }
+          } catch (localError) {
+            console.log(
+              "Local server endpoint error for update, trying Netlify function...",
+              localError
+            );
+          }
+
+          // If local endpoint fails, try the Netlify function
+          if (!response || !response.ok) {
+            response = await fetch("/.netlify/functions/neon-requests", {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+                "Cache-Control": "no-cache, no-store, must-revalidate",
+                Pragma: "no-cache",
+                Expires: "0",
+              },
+              body: JSON.stringify(requestBody),
+              signal: controller.signal,
+              // Add credentials to ensure cookies are sent
+              credentials: "include",
+            });
+          }
+
+          // Clear the timeout since the request completed
+          clearTimeout(timeoutId);
+        } catch (fetchError) {
+          // Clear the timeout to prevent memory leaks
+          clearTimeout(timeoutId);
+
+          // Check if the error was due to timeout
+          if (fetchError.name === "AbortError") {
+            throw new Error(
+              "Request timed out after 15 seconds. The server might be experiencing high load or connectivity issues."
+            );
+          }
+
+          // Re-throw other errors
+          throw fetchError;
+        }
+
+        lastResponse = response;
+        console.log(`Server response status: ${response.status}`);
+
+        // Log more details about the response
+        console.log("Response headers:", response.headers);
+
+        // Check if response is empty
+        const contentType = response.headers.get("content-type");
+        console.log("Response content type:", contentType);
+
+        // Try to get the response text for debugging regardless of content type
+        let responseText = "";
+        try {
+          responseText = await response.clone().text();
+          console.log("Raw response text:", responseText);
+        } catch (textError) {
+          console.error("Could not read response text:", textError);
+        }
+
+        if (!contentType || !contentType.includes("application/json")) {
+          console.warn("Server did not return JSON. Status:", response.status);
+          if (response.ok) {
+            // If the response is OK but not JSON, return the updated request
+            console.log(
+              "Server returned success but no JSON, using updated request data as response"
+            );
+            return updatedRequest;
+          }
+
+          // We already tried to get the error details above
+          const errorDetails = responseText;
+
           throw new Error(
-            "Request timed out after 15 seconds. The server might be experiencing high load or connectivity issues."
+            `Server returned non-JSON response: ${response.status} ${
+              response.statusText
+            }${errorDetails ? ` - ${errorDetails}` : ""}`
           );
         }
 
-        // Re-throw other errors
-        throw fetchError;
+        if (!response.ok) {
+          let errorData: any = {};
+          try {
+            // Try to parse the error response as JSON
+            errorData = await response.json();
+          } catch (jsonError) {
+            // If it's not JSON, get the text
+            try {
+              const errorText = await response.text();
+              console.error("Server error response (text):", errorText);
+              throw new Error(
+                `Server error: ${response.status} ${response.statusText} - ${errorText}`
+              );
+            } catch (textError) {
+              console.error("Could not read error response:", textError);
+              throw new Error(
+                `Server error: ${response.status} ${response.statusText}`
+              );
+            }
+          }
+
+          console.error("Server error response (JSON):", errorData);
+          throw new Error(
+            `Server error: ${response.status} ${response.statusText} - ${
+              errorData.message || errorData.error || JSON.stringify(errorData)
+            }`
+          );
+        }
+
+        try {
+          console.log("Attempting to parse response as JSON");
+          const data = await handleResponse(response);
+          console.log("Request updated successfully with data:", data);
+
+          // Validate that we have a proper response with at least an ID
+          if (!data || !data.id) {
+            console.warn(
+              "Response data is missing ID, using updated request data as fallback"
+            );
+            return updatedRequest;
+          }
+
+          return data;
+        } catch (parseError) {
+          console.error(
+            "Failed to parse response, using updated request data as fallback:",
+            parseError
+          );
+
+          // If we can't parse the response but the request was successful, return the request data
+          if (response.ok) {
+            console.log("Using updated request data as fallback response");
+            return updatedRequest;
+          }
+
+          // Try to get more information about the error
+          let errorText = "";
+          try {
+            errorText = await response.clone().text();
+            console.error("Error response text:", errorText);
+          } catch (textError) {
+            console.error("Could not read error response text:", textError);
+          }
+
+          throw new Error(
+            `Failed to parse response: ${parseError}. Response text: ${errorText}`
+          );
+        }
+      } catch (error) {
+        console.error(
+          `Error updating request (attempt ${retryCount + 1}):`,
+          error
+        );
+        lastError = error;
+        retryCount++;
+
+        if (retryCount <= maxRetries) {
+          // Wait before retrying (exponential backoff)
+          const delay = 1000 * Math.pow(2, retryCount - 1); // 1s, 2s, 4s, 8s
+          console.log(`Waiting ${delay}ms before retry...`);
+          await new Promise((resolve) => setTimeout(resolve, delay));
+          console.log(`Retrying request update (attempt ${retryCount + 1})...`);
+        }
       }
-
-      console.log("requestDbApi: Update response status:", response.status);
-
-      const result = await handleResponse(response);
-      console.log("requestDbApi: Update response data:", result);
-
-      return result;
-    } catch (error) {
-      console.error(`Error updating request ${request.id} in database:`, error);
-      throw error;
     }
+
+    console.error(`Failed to update request after ${maxRetries + 1} attempts`);
+
+    // If we have a response but couldn't process it, provide more detailed error
+    if (lastResponse) {
+      try {
+        const responseText = await lastResponse.text();
+        console.error("Last server response:", responseText);
+        throw new Error(
+          `Server returned status ${lastResponse.status} ${lastResponse.statusText}. Response: ${responseText}`
+        );
+      } catch (textError) {
+        console.error("Could not read last response:", textError);
+      }
+    }
+
+    // If all else fails, return a more detailed error
+    throw (
+      lastError ||
+      new Error(
+        `Failed to update request after ${
+          maxRetries + 1
+        } attempts. Check your network connection and try again.`
+      )
+    );
   },
 
   // Delete a request
   delete: async (id: string): Promise<void> => {
     try {
+      // Try the local server endpoint first
+      try {
+        console.log(`Trying to delete request ${id} from local server...`);
+        const localResponse = await fetch("/db/requests", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            action: "delete",
+            id,
+          }),
+        });
+
+        if (localResponse.ok) {
+          console.log("Local server endpoint successful for delete");
+          return handleResponse(localResponse);
+        } else {
+          console.log(
+            "Local server endpoint failed for delete, trying Netlify function..."
+          );
+        }
+      } catch (localError) {
+        console.log(
+          "Local server endpoint error for delete, trying Netlify function...",
+          localError
+        );
+      }
+
+      // If local endpoint fails, try the Netlify function
       const response = await fetch("/.netlify/functions/neon-requests", {
         method: "POST",
         headers: {
@@ -564,6 +974,38 @@ export const requestDbApi = {
         createdAt: new Date().toISOString(),
       };
 
+      // Try the local server endpoint first
+      try {
+        console.log(
+          `Trying to add comment to request ${requestId} on local server...`
+        );
+        const localResponse = await fetch("/db/requests", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            action: "addComment",
+            comment,
+          }),
+        });
+
+        if (localResponse.ok) {
+          console.log("Local server endpoint successful for addComment");
+          return handleResponse(localResponse);
+        } else {
+          console.log(
+            "Local server endpoint failed for addComment, trying Netlify function..."
+          );
+        }
+      } catch (localError) {
+        console.log(
+          "Local server endpoint error for addComment, trying Netlify function...",
+          localError
+        );
+      }
+
+      // If local endpoint fails, try the Netlify function
       const response = await fetch("/.netlify/functions/neon-requests", {
         method: "POST",
         headers: {

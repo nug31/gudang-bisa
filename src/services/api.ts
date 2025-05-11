@@ -1,6 +1,7 @@
 import { ItemRequest, Comment, User } from "../types";
 import { v4 as uuidv4 } from "uuid";
 import { sanitizeUuids, isValidUuid } from "../utils/uuidUtils";
+import { getDirectDbEndpoint } from "../utils/apiEndpoints";
 
 // Base URL for API requests
 const API_BASE_URL = "/api";
@@ -183,8 +184,12 @@ export const requestDbApi = {
         );
       }
 
-      // If local endpoint fails, try the Netlify function
-      const response = await fetch("/.netlify/functions/neon-requests", {
+      // Get the appropriate endpoint based on the environment
+      const endpoint = getDirectDbEndpoint("requests");
+      console.log(`Using endpoint: ${endpoint}`);
+
+      // Make the API call
+      const response = await fetch(endpoint, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -247,8 +252,12 @@ export const requestDbApi = {
         );
       }
 
-      // If local endpoint fails, try the Netlify function
-      const response = await fetch("/.netlify/functions/neon-requests", {
+      // Get the appropriate endpoint based on the environment
+      const endpoint = getDirectDbEndpoint("requests");
+      console.log(`Using endpoint for getById: ${endpoint}`);
+
+      // Make the API call
+      const response = await fetch(endpoint, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -378,7 +387,11 @@ export const requestDbApi = {
 
           // If local endpoint fails, try the Netlify function
           if (!response || !response.ok) {
-            response = await fetch("/.netlify/functions/neon-requests", {
+            // Get the appropriate endpoint based on the environment
+            const endpoint = getDirectDbEndpoint("requests");
+            console.log(`Using endpoint for create: ${endpoint}`);
+
+            response = await fetch(endpoint, {
               method: "POST",
               headers: {
                 "Content-Type": "application/json",
@@ -667,7 +680,11 @@ export const requestDbApi = {
 
           // If local endpoint fails, try the Netlify function
           if (!response || !response.ok) {
-            response = await fetch("/.netlify/functions/neon-requests", {
+            // Get the appropriate endpoint based on the environment
+            const endpoint = getDirectDbEndpoint("requests");
+            console.log(`Using endpoint for update: ${endpoint}`);
+
+            response = await fetch(endpoint, {
               method: "POST",
               headers: {
                 "Content-Type": "application/json",
@@ -882,8 +899,12 @@ export const requestDbApi = {
         );
       }
 
-      // If local endpoint fails, try the Netlify function
-      const response = await fetch("/.netlify/functions/neon-requests", {
+      // Get the appropriate endpoint based on the environment
+      const endpoint = getDirectDbEndpoint("requests");
+      console.log(`Using endpoint for delete: ${endpoint}`);
+
+      // Make the API call
+      const response = await fetch(endpoint, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -946,8 +967,12 @@ export const requestDbApi = {
         );
       }
 
-      // If local endpoint fails, try the Netlify function
-      const response = await fetch("/.netlify/functions/neon-requests", {
+      // Get the appropriate endpoint based on the environment
+      const endpoint = getDirectDbEndpoint("requests");
+      console.log(`Using endpoint for addComment: ${endpoint}`);
+
+      // Make the API call
+      const response = await fetch(endpoint, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",

